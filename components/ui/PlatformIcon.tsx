@@ -24,6 +24,8 @@ const PlatformIcon: React.FC<PlatformIconProps> = ({
       case 'TikTok Shop': return <Video size={size} className="text-black" />;
       case 'Amazon': return <Store size={size} className="text-orange-500" />;
       case 'AliExpress': return <ShoppingBag size={size} className="text-red-600" />;
+      case 'eBay': return <Store size={size} className="text-blue-500" />;
+      case 'Website': return <Globe size={size} className="text-gray-400" />;
       default: return <Globe size={size} className="text-gray-500" />;
     }
   };

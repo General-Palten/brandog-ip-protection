@@ -1,8 +1,8 @@
 import React from 'react';
 
-export type PlatformType = 'Meta Ads' | 'Instagram' | 'Shopify' | 'TikTok Shop' | 'Amazon' | 'AliExpress';
+export type PlatformType = 'Meta Ads' | 'Instagram' | 'Shopify' | 'TikTok Shop' | 'Amazon' | 'AliExpress' | 'eBay' | 'Website';
 
-export type InfringementStatus = 'pending' | 'reported' | 'dismissed' | 'takedown_in_progress' | 'takedown_confirmed';
+export type InfringementStatus = 'detected' | 'pending_review' | 'in_progress' | 'resolved' | 'rejected';
 
 export interface InfringementItem {
   id: string;
@@ -18,6 +18,7 @@ export interface InfringementItem {
   detectedAt: string; // ISO date
   country: string;
   // Enhanced Data
+  originalAssetId?: string; // Links to PersistedAsset.id
   infringingUrl?: string;
   sellerName?: string;
   whois?: {
@@ -29,6 +30,43 @@ export interface InfringementItem {
     provider: string;
     ipAddress: string;
   };
+}
+
+// Predefined status update types for lawyers
+export type CaseUpdateType =
+  | 'takedown_initiated'
+  | 'platform_contacted'
+  | 'dmca_sent'
+  | 'awaiting_response'
+  | 'follow_up_sent'
+  | 'escalated'
+  | 'content_removed'
+  | 'case_closed'
+  | 'custom';
+
+// Individual case update/message
+export interface CaseUpdate {
+  id: string;
+  caseId: string;
+  type: CaseUpdateType;
+  message: string;
+  createdAt: string;
+  createdBy: 'lawyer' | 'system' | 'brand_owner';
+  isRead: boolean;
+}
+
+export interface TakedownRequest {
+  id: string;
+  caseId: string;              // Links to InfringementItem.id
+  originalAssetId: string;     // Links to PersistedAsset.id
+  infringingUrl: string;
+  detectedDate: string;        // ISO date
+  platform: PlatformType;
+  status: InfringementStatus;
+  adminNotes?: string;
+  requestedAt: string;         // ISO timestamp
+  processedAt?: string;        // ISO timestamp when admin processed
+  updates: CaseUpdate[];       // Case updates/messages for lawyer-client communication
 }
 
 export interface ActivityLogItem {
@@ -67,6 +105,8 @@ export interface KeywordItem {
   trend?: 'up' | 'down' | 'stable';
 }
 
+export type AssetScanStatus = 'pending' | 'queued' | 'scanning' | 'success' | 'failed' | 'skipped';
+
 // Persisted asset type (metadata only - binary data stays in IndexedDB)
 export interface PersistedAsset {
   id: string;
@@ -77,6 +117,13 @@ export interface PersistedAsset {
   dateAdded: number;
   sourceUrl?: string;
   content?: string;
+  fingerprint?: string;
+  scanStatus?: AssetScanStatus;
+  scanAttempts?: number;
+  lastScannedAt?: string;
+  nextScanAt?: string;
+  scanProvider?: string;
+  lastScanError?: string;
 }
 
 // Vision API search result types
@@ -98,5 +145,6 @@ export interface VisionSearchResponse {
   pagesWithMatchingImages: VisionSearchResult[];
   fullMatchingImages: { url: string }[];
   partialMatchingImages: { url: string }[];
+  visuallySimilarImages: { url: string }[];
   webEntities: VisionWebEntity[];
 }

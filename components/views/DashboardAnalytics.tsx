@@ -3,9 +3,9 @@ import { useDashboard } from '../../context/DashboardContext';
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
 import BentoCard from '../ui/BentoCard';
 import { MoreHorizontal, ChevronDown, ShieldCheck, AlertTriangle, TrendingUp, TrendingDown, Calendar, Sparkles, CornerDownLeft, ChevronLeft, ChevronRight, Globe } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 import { PLATFORM_CONFIG } from '../../constants';
 import { InfringementItem } from '../../types';
+import { isActiveCaseStatus, isResolvedCaseStatus } from '../../lib/case-status';
 
 interface DateRange {
     key: string;
@@ -28,7 +28,7 @@ const FormattedText = ({ text }: { text: string }) => {
 
   const lines = text.split('\n');
   return (
-    <div className="space-y-2 text-xs leading-relaxed text-zinc-400 font-mono">
+    <div className="space-y-2 text-xs leading-relaxed text-secondary font-mono">
        {lines.map((line, i) => {
           const trimmed = line.trim();
           if (!trimmed) return <div key={i} className="h-1" />;
@@ -37,7 +37,7 @@ const FormattedText = ({ text }: { text: string }) => {
           if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
              return (
                 <div key={i} className="flex gap-2 pl-1">
-                   <span className="text-zinc-600 shrink-0">•</span>
+                   <span className="text-secondary/80 shrink-0">*</span>
                    <span>{parseBold(trimmed.substring(2))}</span>
                 </div>
              );
@@ -47,7 +47,7 @@ const FormattedText = ({ text }: { text: string }) => {
              const [num, ...rest] = trimmed.split('.');
              return (
                 <div key={i} className="flex gap-2 pl-1">
-                   <span className="text-zinc-600 font-mono text-[10px] pt-0.5 shrink-0">{num}.</span>
+                   <span className="text-secondary/80 font-mono text-[10px] pt-0.5 shrink-0">{num}.</span>
                    <span>{parseBold(rest.join('.').trim())}</span>
                 </div>
              );
@@ -95,7 +95,7 @@ const DottedMap = ({ data }: { data: { country: string, value: number }[] }) => 
     };
 
     return (
-        <div className="relative w-full h-full flex items-center justify-center bg-[#0C0C0C] rounded-lg overflow-hidden select-none">
+        <div className="relative w-full h-full flex items-center justify-center bg-background rounded-lg overflow-hidden select-none">
              
              {/* Map Container */}
              <div className="relative w-full h-full">
@@ -107,7 +107,7 @@ const DottedMap = ({ data }: { data: { country: string, value: number }[] }) => 
                      <defs>
                          {/* Dot Pattern - Creates the "Dotted" look */}
                          <pattern id="dots" x="0" y="0" width="8" height="8" patternUnits="userSpaceOnUse">
-                             <circle cx="2" cy="2" r="1.5" className="fill-zinc-800" />
+                             <circle cx="2" cy="2" r="1.5" className="fill-border/90" />
                          </pattern>
                          
                          {/* Mask - Uses the world path to cut out the dots */}
@@ -122,7 +122,7 @@ const DottedMap = ({ data }: { data: { country: string, value: number }[] }) => 
                      </defs>
                      
                      {/* Background Grid (Optional, makes it look more 'cyber') */}
-                     <rect width="100%" height="100%" fill="#0C0C0C" />
+                     <rect width="100%" height="100%" fill="rgb(var(--background))" />
                      
                      {/* The Dotted Map Layer */}
                      {/* We fill the entire rect with dots, but mask it to only show landmasses */}
@@ -178,9 +178,9 @@ const DottedMap = ({ data }: { data: { country: string, value: number }[] }) => 
                                 
                                 {/* Tooltip Group */}
                                 <foreignObject x={coords.x + 10} y={coords.y - 40} width="120" height="50" className="overflow-visible pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50">
-                                    <div className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 shadow-xl flex flex-col items-start whitespace-nowrap">
-                                        <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider leading-none mb-1">{coords.name}</span>
-                                        <span className="text-[10px] text-red-400 font-mono leading-none">{item.value} Violations</span>
+                                    <div className="bg-background border border-border rounded px-2 py-1.5 shadow-xl flex flex-col items-start whitespace-nowrap">
+                                        <span className="text-[10px] font-bold text-primary uppercase tracking-wider leading-none mb-1">{coords.name}</span>
+                                        <span className="text-[10px] text-red-500 font-mono leading-none">{item.value} Violations</span>
                                     </div>
                                 </foreignObject>
                             </g>
@@ -190,9 +190,9 @@ const DottedMap = ({ data }: { data: { country: string, value: number }[] }) => 
              </div>
              
              {/* Legend / Overlay Info */}
-             <div className="absolute bottom-4 left-4 flex gap-4 text-[10px] text-zinc-500 font-mono">
+             <div className="absolute bottom-4 left-4 flex gap-4 text-[10px] text-secondary font-mono">
                  <div className="flex items-center gap-2">
-                     <span className="w-2 h-2 rounded-full bg-zinc-800"></span> Active Region
+                     <span className="w-2 h-2 rounded-full bg-border"></span> Active Region
                  </div>
                  <div className="flex items-center gap-2">
                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span> Violation Hotspot
@@ -378,14 +378,16 @@ const DashboardAnalytics: React.FC = () => {
 
   // --- Aggregate Data Based on Range ---
 
-  // Filters from actual data
-  const protectedItems = useMemo(() => 
-    infringements.filter(i => ['reported', 'takedown_in_progress', 'takedown_confirmed'].includes(i.status)),
-  [infringements]);
+  // Filters from canonical lifecycle statuses
+  const protectedItems = useMemo(
+    () => infringements.filter(i => isResolvedCaseStatus(i.status)),
+    [infringements]
+  );
 
-  const pendingItems = useMemo(() => 
-    infringements.filter(i => i.status === 'pending'),
-  [infringements]);
+  const pendingItems = useMemo(
+    () => infringements.filter(i => isActiveCaseStatus(i.status)),
+    [infringements]
+  );
 
   // Aggregate Big Numbers based on ALL available data relevant to the metric, filtered by range if needed
   // Use String Comparison for dates to avoid timezone mismatches with generated data
@@ -567,6 +569,51 @@ const DashboardAnalytics: React.FC = () => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
+  const buildAssistantReply = (question: string) => {
+    const normalized = question.toLowerCase();
+    const topPlatform = platformRiskData[0];
+    const topCountry = [...violationMapData].sort((a, b) => b.value - a.value)[0];
+
+    if (normalized.includes('platform')) {
+      if (!topPlatform) {
+        return `No platform risk data is available for **${globalDateRange.label}** yet.`;
+      }
+      return [
+        `Top risk platform in **${globalDateRange.label}** is **${topPlatform.category}**.`,
+        `- Estimated share of loss: **${topPlatform.percentage}%**`,
+        `- Estimated revenue at risk on this platform: **$${topPlatform.value.toLocaleString()}**`,
+      ].join('\n');
+    }
+
+    if (normalized.includes('country') || normalized.includes('region')) {
+      if (!topCountry) {
+        return `No country-level data is available for **${globalDateRange.label}** yet.`;
+      }
+      return [
+        `Highest activity region in **${globalDateRange.label}** is **${topCountry.country}**.`,
+        `- Flagged violations: **${topCountry.value}**`,
+        `- Total active threats right now: **${activeInfringements}**`,
+      ].join('\n');
+    }
+
+    if (normalized.includes('loss') || normalized.includes('revenue')) {
+      return [
+        `Revenue snapshot for **${globalDateRange.label}**:`,
+        `- Potential revenue at risk: **$${potentialLoss.toLocaleString()}**`,
+        `- Revenue protected (resolved cases): **$${revenueProtected.toLocaleString()}**`,
+        `- Active threats: **${activeInfringements}**`,
+      ].join('\n');
+    }
+
+    return [
+      `Current summary for **${globalDateRange.label}**:`,
+      `- Active threats: **${activeInfringements}**`,
+      `- Potential loss: **$${potentialLoss.toLocaleString()}**`,
+      `- Protected revenue: **$${revenueProtected.toLocaleString()}**`,
+      topPlatform ? `- Highest-risk platform: **${topPlatform.category}** (${topPlatform.percentage}%)` : '- Highest-risk platform: **No data**',
+    ].join('\n');
+  };
+
   const handleSendMessage = async (e?: React.FormEvent, overrideText?: string) => {
     e?.preventDefault();
     const textToSend = overrideText || chatInput;
@@ -577,53 +624,11 @@ const DashboardAnalytics: React.FC = () => {
     setIsChatLoading(true);
 
     try {
-        const contextData = {
-          summary: {
-              totalPotentialLoss: potentialLoss,
-              totalRevenueProtected: revenueProtected,
-              activeThreatsCount: activeInfringements,
-              totalInfringementsTracked: infringements.length,
-              dateRange: globalDateRange.label
-          },
-          platformRisks: platformRiskData,
-          topCountries: violationMapData.sort((a,b) => b.value - a.value).slice(0, 5),
-          recentInfringements: filteredPending.slice(0, 5).map(i => ({
-              brand: i.brandName,
-              platform: i.platform,
-              revenueLost: i.revenueLost,
-              status: i.status,
-              detected: i.detectedAt,
-              country: i.country
-          }))
-        };
-
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: textToSend,
-            config: {
-                systemInstruction: `You are an AI Analyst for Brandog, a brand protection platform. 
-                You have access to the dashboard data below. Answer the user's questions based on this data.
-                
-                Data Context:
-                ${JSON.stringify(contextData, null, 2)}
-                
-                Guidelines:
-                1. Be concise and professional.
-                2. Use bullet points for lists.
-                3. Bold key numbers and names using **bold**.
-                4. Do NOT use markdown tables or headers (like # or ##).
-                `,
-            }
-        });
-
-        const text = response.text || "I couldn't generate a response at this time.";
+        await new Promise(resolve => setTimeout(resolve, 350));
+        const text = buildAssistantReply(textToSend);
         setChatMessages(prev => [...prev, { role: 'model', text }]);
-
-    } catch (error) {
-        console.error("Gemini API Error:", error);
-        setChatMessages(prev => [...prev, { role: 'model', text: "I'm having trouble connecting to the network right now." }]);
+    } catch {
+        setChatMessages(prev => [...prev, { role: 'model', text: 'I could not generate a response right now.' }]);
     } finally {
         setIsChatLoading(false);
     }
@@ -673,8 +678,8 @@ const DashboardAnalytics: React.FC = () => {
       {/* Header */}
       <div className="flex items-end justify-between">
          <div>
-            <h1 className="font-serif text-3xl md:text-4xl text-white font-medium tracking-tight">Morning Viktor</h1>
-            <p className="text-zinc-400 mt-2 text-sm">Here's a quick look at how things are going.</p>
+            <h1 className="font-serif text-3xl md:text-4xl text-primary font-medium tracking-tight">Morning Viktor</h1>
+            <p className="text-secondary mt-2 text-sm">Here is a quick look at your current protection operations.</p>
          </div>
          <div className="flex items-center gap-2">
             <DateRangeSelector selected={globalDateRange} onSelect={setGlobalDateRange} />
@@ -709,8 +714,8 @@ const DashboardAnalytics: React.FC = () => {
                       </div>
                   </div>
                   
-                  <div className="h-[35px] w-full mt-1 -ml-1">
-                     <ResponsiveContainer width="100%" height="100%">
+                  <div className="h-[35px] min-h-[35px] min-w-0 w-full mt-1 -ml-1">
+                     <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                         <AreaChart data={revenueData} onMouseMove={() => {}}>
                            <defs>
                               <linearGradient id="gradProtected" x1="0" y1="0" x2="0" y2="1">
@@ -760,8 +765,8 @@ const DashboardAnalytics: React.FC = () => {
                        </div>
                    </div>
 
-                   <div className="h-[35px] w-full mt-1 -ml-1">
-                      <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[35px] min-h-[35px] min-w-0 w-full mt-1 -ml-1">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                          <AreaChart data={lossData} onMouseMove={() => {}}>
                             <defs>
                                <linearGradient id="gradLoss" x1="0" y1="0" x2="0" y2="1">
@@ -858,8 +863,8 @@ const DashboardAnalytics: React.FC = () => {
             <div className="mt-2 border-t border-border">
                 {/* Header */}
                 <div className="grid grid-cols-7">
-                    {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(d => (
-                        <div key={d} className="py-2 text-[10px] text-secondary font-mono text-center border-r border-b border-border last:border-r-0">
+                    {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, dayIndex) => (
+                        <div key={`${d}-${dayIndex}`} className="py-2 text-[10px] text-secondary font-mono text-center border-r border-b border-border last:border-r-0">
                             {d}
                         </div>
                     ))}
@@ -908,7 +913,7 @@ const DashboardAnalytics: React.FC = () => {
                         <span className="text-secondary group-hover:text-primary transition-colors truncate">{item.category}</span>
                      </div>
                      <div className="flex-1 h-1 bg-surface rounded-none mx-2 overflow-hidden">
-                         <div className="h-full rounded-none" style={{ width: `${item.percentage}%`, backgroundColor: '#fafafa' }}></div>
+                         <div className="h-full rounded-none" style={{ width: `${item.percentage}%`, backgroundColor: 'rgb(var(--primary))' }}></div>
                      </div>
                      <span className="text-secondary font-mono w-6 text-right">{item.percentage}%</span>
                   </div>
@@ -918,9 +923,9 @@ const DashboardAnalytics: React.FC = () => {
 
          {/* Card 7: Assistant (Full Width Bottom) */}
          <BentoCard title="Assistant" className="md:col-span-full h-[350px] flex flex-col border border-border shadow-lg" noPadding={true}>
-            <div className="flex-1 flex flex-col min-h-0 bg-[#0C0C0C]">
+            <div className="flex-1 flex flex-col min-h-0 bg-surface/40">
                 {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto space-y-4 p-4 scrollbar-thin scrollbar-thumb-zinc-800">
+                <div className="flex-1 overflow-y-auto space-y-4 p-4">
                     {chatMessages.map((msg, idx) => (
                         <div key={idx} className="flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                             <div className="shrink-0 mt-0.5">
@@ -929,11 +934,11 @@ const DashboardAnalytics: React.FC = () => {
                                          <img src="https://i.pravatar.cc/150?u=a042581f4e29026704d" alt="User" className="w-full h-full object-cover grayscale" />
                                     </div>
                                 ) : (
-                                    <Sparkles size={18} className="text-white fill-white" />
+                                    <Sparkles size={18} className="text-primary fill-primary" />
                                 )}
                             </div>
                             <div className="flex-1">
-                                <div className={`text-sm ${msg.role === 'user' ? 'text-zinc-200 font-mono' : 'text-zinc-300'}`}>
+                                <div className={`text-sm ${msg.role === 'user' ? 'text-primary font-mono' : 'text-primary/90'}`}>
                                     {msg.role === 'user' ? (
                                         msg.text
                                     ) : (
@@ -945,7 +950,7 @@ const DashboardAnalytics: React.FC = () => {
                     ))}
                     {isChatLoading && (
                         <div className="flex gap-4 px-1">
-                             <Sparkles size={18} className="text-white/50 animate-pulse" />
+                             <Sparkles size={18} className="text-primary/50 animate-pulse" />
                              <div className="flex gap-1 mt-2">
                                 <span className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
                                 <span className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
@@ -958,13 +963,13 @@ const DashboardAnalytics: React.FC = () => {
 
                 {/* Suggestions Area */}
                 {showSuggestions && (
-                    <div className="px-0 pb-2 bg-[#0C0C0C] relative group/suggestions">
+                    <div className="px-0 pb-2 bg-surface/40 relative group/suggestions">
                         {/* Left Arrow with Fade */}
                         {canScrollLeft && (
-                            <div className="absolute left-0 top-0 bottom-2 w-12 bg-gradient-to-r from-[#0C0C0C] via-[#0C0C0C] to-transparent z-10 flex items-center justify-start pl-2">
+                            <div className="absolute left-0 top-0 bottom-2 w-12 bg-gradient-to-r from-surface/80 via-surface/50 to-transparent z-10 flex items-center justify-start pl-2">
                                 <button 
                                     onClick={() => scrollSuggestions('left')}
-                                    className="p-1 text-zinc-400 hover:text-white transition-all"
+                                    className="p-1 text-secondary hover:text-primary transition-all"
                                 >
                                     <ChevronLeft size={14} />
                                 </button>
@@ -982,7 +987,7 @@ const DashboardAnalytics: React.FC = () => {
                                     key={suggestion}
                                     onClick={() => handleSendMessage(undefined, suggestion)}
                                     disabled={isChatLoading}
-                                    className="shrink-0 text-[10px] text-zinc-400 border border-zinc-800 bg-zinc-900/50 px-3 py-1.5 rounded-none hover:bg-zinc-800 hover:text-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                                    className="shrink-0 text-[10px] text-secondary border border-border bg-background px-3 py-1.5 rounded-none hover:bg-surface hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                                 >
                                     {suggestion}
                                 </button>
@@ -993,10 +998,10 @@ const DashboardAnalytics: React.FC = () => {
 
                         {/* Right Arrow with Fade */}
                         {canScrollRight && (
-                            <div className="absolute right-0 top-0 bottom-2 w-12 bg-gradient-to-l from-[#0C0C0C] via-[#0C0C0C] to-transparent z-10 flex items-center justify-end pr-2">
+                            <div className="absolute right-0 top-0 bottom-2 w-12 bg-gradient-to-l from-surface/80 via-surface/50 to-transparent z-10 flex items-center justify-end pr-2">
                                 <button 
                                     onClick={() => scrollSuggestions('right')}
-                                    className="p-1 text-zinc-400 hover:text-white transition-all"
+                                    className="p-1 text-secondary hover:text-primary transition-all"
                                 >
                                     <ChevronRight size={14} />
                                 </button>
@@ -1006,19 +1011,19 @@ const DashboardAnalytics: React.FC = () => {
                 )}
 
                 {/* Input Area */}
-                <form onSubmit={handleSendMessage} className="relative border-t border-zinc-800 p-4 bg-[#0C0C0C]">
+                <form onSubmit={handleSendMessage} className="relative border-t border-border p-4 bg-background">
                     <div className="relative flex items-center">
                         <input 
                             type="text" 
                             value={chatInput}
                             onChange={(e) => setChatInput(e.target.value)}
                             placeholder="Ask Brandog a question..."
-                            className="w-full bg-transparent text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none py-2 pr-12 font-sans"
+                            className="w-full bg-transparent text-sm text-primary placeholder-secondary focus:outline-none py-2 pr-12 font-sans"
                         />
                         <button 
                             type="submit"
                             disabled={!chatInput.trim() || isChatLoading}
-                            className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-zinc-400 hover:text-white transition-colors disabled:opacity-30"
+                            className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-secondary hover:text-primary transition-colors disabled:opacity-30"
                         >
                             <span>Submit</span>
                             <CornerDownLeft size={10} strokeWidth={3} />

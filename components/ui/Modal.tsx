@@ -6,7 +6,7 @@ interface ModalProps {
   onClose: () => void;
   title: React.ReactNode;
   children: React.ReactNode;
-  size?: 'md' | 'lg' | 'xl' | '2xl' | 'full';
+  size?: 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | 'full';
 }
 
 const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 'md' }) => {
@@ -33,6 +33,8 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
     lg: 'max-w-lg',
     xl: 'max-w-2xl',
     '2xl': 'max-w-5xl',
+    '3xl': 'max-w-6xl',
+    '4xl': 'max-w-7xl',
     'full': 'max-w-full m-4 h-[calc(100vh-2rem)]'
   };
 
@@ -46,10 +48,10 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
       />
       
       {/* Modal Content */}
-      <div className={`relative bg-background border border-border rounded-2xl shadow-2xl flex flex-col w-full ${sizeClasses[size]} animate-in zoom-in-95 duration-200`}>
+      <div className={`relative bg-background border border-border rounded-2xl shadow-2xl flex flex-col w-full max-h-[90vh] ${sizeClasses[size]} animate-in zoom-in-95 duration-200`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div className="text-lg font-medium text-primary font-serif">{title}</div>
-          <button 
+          <button
             onClick={onClose}
             className="p-2 text-secondary hover:text-primary hover:bg-surface rounded-lg transition-colors"
             aria-label="Close modal"
@@ -57,8 +59,8 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
             <X size={20} />
           </button>
         </div>
-        
-        <div className="flex-1 overflow-y-auto">
+
+        <div className="flex-1 overflow-y-auto min-h-0">
           {children}
         </div>
       </div>

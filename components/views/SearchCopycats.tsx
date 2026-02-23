@@ -9,7 +9,15 @@ import {
 } from 'lucide-react';
 
 const SearchCopycats: React.FC = () => {
-  const { infringements, reportInfringement, dismissInfringement, undoInfringementStatus } = useDashboard();
+  const { infringements, reportInfringement, dismissInfringement, undoInfringementStatus, takedownRequests } = useDashboard();
+
+  // Count cases with unread messages (for the "In Progress" badge)
+  const inProgressWithUnread = takedownRequests.filter(req => {
+    const infringement = infringements.find(i => i.id === req.caseId);
+    const isInProgress = infringement && (infringement.status === 'pending_review' || infringement.status === 'in_progress');
+    const hasUnread = (req.updates || []).some(u => !u.isRead);
+    return isInProgress && hasUnread;
+  }).length;
   
   // Toolbar State
   const [selectedPlatformTab, setSelectedPlatformTab] = useState('all');
@@ -21,9 +29,9 @@ const SearchCopycats: React.FC = () => {
   const [isCalculating, setIsCalculating] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InfringementItem | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'pending' | 'resolved'>('pending');
+  const [viewMode, setViewMode] = useState<'pending' | 'in_progress' | 'resolved'>('pending');
 
-  const totalPotentialInfringers = infringements.filter(i => i.status === 'pending').length;
+  const totalPotentialInfringers = infringements.filter(i => i.status === 'detected').length;
   const combinedTraffic = infringements.reduce((acc, curr) => acc + curr.siteVisitors, 0);
   const revenueLoss = infringements.reduce((acc, curr) => acc + curr.revenueLost, 0);
 
@@ -48,13 +56,17 @@ const SearchCopycats: React.FC = () => {
 
   const filteredItems = useMemo(() => {
     let items = infringements.filter(item => {
-      if (viewMode === 'pending' && item.status !== 'pending') return false;
-      if (viewMode !== 'pending' && item.status === 'pending') return false;
+      // New Detections shows only 'detected' status
+      // In Progress shows 'pending_review' and 'in_progress' status
+      // Processed shows 'resolved' and 'rejected' status
+      if (viewMode === 'pending' && item.status !== 'detected') return false;
+      if (viewMode === 'in_progress' && item.status !== 'pending_review' && item.status !== 'in_progress') return false;
+      if (viewMode === 'resolved' && item.status !== 'resolved' && item.status !== 'rejected') return false;
       if (selectedPlatformTab !== 'all' && !item.platform.toLowerCase().includes(selectedPlatformTab)) return false;
       if (countryFilter !== 'all' && item.country !== countryFilter) return false;
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
-        return item.brandName.toLowerCase().includes(query) || 
+        return item.brandName.toLowerCase().includes(query) ||
                item.platform.toLowerCase().includes(query) ||
                item.sellerName?.toLowerCase().includes(query);
       }
@@ -80,17 +92,28 @@ const SearchCopycats: React.FC = () => {
             <p className="text-secondary mt-1 text-sm">Real-time scan results from your active keywords.</p>
          </div>
          <div className="flex bg-surface border border-border p-1 rounded-lg">
-             <button 
+             <button
                 onClick={() => setViewMode('pending')}
                 className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'pending' ? 'bg-zinc-800 text-primary shadow-sm' : 'text-secondary hover:text-primary'}`}
              >
-                 Pending Review
+                 New Detections
              </button>
-             <button 
+             <button
+                onClick={() => setViewMode('in_progress')}
+                className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-2 ${viewMode === 'in_progress' ? 'bg-zinc-800 text-primary shadow-sm' : 'text-secondary hover:text-primary'}`}
+             >
+                 In Progress
+                 {inProgressWithUnread > 0 && (
+                   <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-500 text-white rounded-full min-w-[18px] text-center">
+                     {inProgressWithUnread}
+                   </span>
+                 )}
+             </button>
+             <button
                 onClick={() => setViewMode('resolved')}
                 className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'resolved' ? 'bg-zinc-800 text-primary shadow-sm' : 'text-secondary hover:text-primary'}`}
              >
-                 Resolved History
+                 Processed
              </button>
         </div>
       </div>

@@ -76,16 +76,30 @@ const ImagesVideos: React.FC = () => {
 
     setIsUploading(true);
 
-    try {
-      for (const file of Array.from(files)) {
+    const selectedFiles = Array.from(files);
+    let successCount = 0;
+    const failedFiles: string[] = [];
+
+    for (const file of selectedFiles) {
+      try {
         await addAsset(file);
+        successCount++;
+      } catch {
+        failedFiles.push(file.name);
       }
-      addNotification('success', `${files.length} file(s) uploaded successfully`);
-    } catch (error) {
-      addNotification('error', 'Failed to upload files');
-    } finally {
-      setIsUploading(false);
     }
+
+    if (successCount > 0) {
+      addNotification('success', `${successCount}/${selectedFiles.length} file(s) uploaded successfully`);
+    }
+
+    if (failedFiles.length > 0) {
+      const preview = failedFiles.slice(0, 2).join(', ');
+      const suffix = failedFiles.length > 2 ? ', ...' : '';
+      addNotification('error', `Failed to upload ${failedFiles.length} file(s): ${preview}${suffix}`);
+    }
+
+    setIsUploading(false);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -13,11 +13,11 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'sm' }) => {
 
   const getIcon = () => {
     switch(status) {
-      case 'pending': return <Clock size={12} />;
-      case 'reported': return <CheckCircle size={12} />;
-      case 'dismissed': return <XCircle size={12} />;
-      case 'takedown_in_progress': return <AlertCircle size={12} />;
-      case 'takedown_confirmed': return <ShieldCheck size={12} />;
+      case 'detected': return <AlertCircle size={12} />;
+      case 'pending_review': return <Clock size={12} />;
+      case 'in_progress': return <AlertCircle size={12} />;
+      case 'resolved': return <ShieldCheck size={12} />;
+      case 'rejected': return <XCircle size={12} />;
       default: return null;
     }
   };

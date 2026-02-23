@@ -2,12 +2,20 @@ import React, { useState, useEffect } from 'react';
 import BentoCard from '../ui/BentoCard';
 import Button from '../ui/Button';
 import { useDashboard } from '../../context/DashboardContext';
+import { useAuth } from '../../context/AuthContext';
 import {
   User, Bell, Shield, Key, CreditCard, Mail, Globe, Moon,
-  Smartphone, LogOut, Camera, Check, Plug, Eye, EyeOff, Loader2, CheckCircle, XCircle
+  Smartphone, LogOut, Camera, Check, Plug, Eye, EyeOff, Loader2, CheckCircle, XCircle, Database, Trash2
 } from 'lucide-react';
-import { getVisionConfig, saveVisionConfig } from '../../lib/api-config';
+import {
+  getVisionConfig,
+  saveVisionConfig,
+  saveVisionProvider,
+  isServerManagedSerpApiEnabled,
+  type ImageSearchProvider
+} from '../../lib/api-config';
 import { testVisionApiConnection } from '../../lib/vision-api';
+import { seedDatabase, clearBrandData } from '../../lib/seed-data';
 
 interface SettingsProps {
   initialSection?: string;
@@ -15,35 +23,103 @@ interface SettingsProps {
 
 const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
   const { theme, toggleTheme, addNotification } = useDashboard();
+  const { user, profile, updateProfile, currentBrand } = useAuth();
   const [activeSection, setActiveSection] = useState(initialSection);
 
+  // Profile form state
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [bio, setBio] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
   // API Configuration state
+  const [searchProvider, setSearchProvider] = useState<ImageSearchProvider>('google_vision');
   const [visionApiKey, setVisionApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const hasServerManagedSerpApi = isServerManagedSerpApiEnabled();
 
   useEffect(() => {
     setActiveSection(initialSection);
   }, [initialSection]);
 
+  // Initialize profile form with user data
+  useEffect(() => {
+    const fullName = profile?.fullName || user?.user_metadata?.full_name || '';
+    const nameParts = fullName.split(' ');
+    setFirstName(nameParts[0] || '');
+    setLastName(nameParts.slice(1).join(' ') || '');
+  }, [profile, user]);
+
+  const handleSaveProfile = async () => {
+    const fullName = `${firstName} ${lastName}`.trim();
+    if (!fullName) {
+      addNotification('error', 'Please enter your name');
+      return;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      const { error } = await updateProfile({ fullName });
+      if (error) {
+        addNotification('error', error.message || 'Failed to update profile');
+      } else {
+        addNotification('success', 'Profile updated successfully');
+      }
+    } catch (err) {
+      addNotification('error', 'Failed to update profile');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   // Load saved API key on mount
   useEffect(() => {
     const config = getVisionConfig();
-    if (config.apiKey) {
-      setVisionApiKey(config.apiKey);
-      setConnectionStatus('idle');
-    }
-  }, []);
+    setSearchProvider(config.provider);
+    const activeKey = config.provider === 'serpapi_lens'
+      ? (hasServerManagedSerpApi ? '' : config.serpApiKey)
+      : config.googleVisionApiKey || config.apiKey;
+    setVisionApiKey(activeKey || '');
+    setConnectionStatus('idle');
+  }, [hasServerManagedSerpApi]);
 
   const handleSaveApiKey = () => {
-    saveVisionConfig(visionApiKey);
-    addNotification('success', 'API key saved successfully');
+    if (searchProvider === 'serpapi_lens' && hasServerManagedSerpApi && !visionApiKey.trim()) {
+      saveVisionConfig('', 'serpapi_lens');
+      addNotification('success', 'SerpApi key is managed server-side and stored outside the browser.');
+      setConnectionStatus('idle');
+      return;
+    }
+
+    saveVisionConfig(visionApiKey, searchProvider);
+    addNotification(
+      'success',
+      searchProvider === 'serpapi_lens'
+        ? 'SerpApi key saved successfully'
+        : 'Google Vision key saved successfully'
+    );
     setConnectionStatus('idle');
   };
 
+  const handleProviderChange = (provider: ImageSearchProvider) => {
+    setSearchProvider(provider);
+    saveVisionProvider(provider);
+    const config = getVisionConfig();
+    setVisionApiKey(
+      provider === 'serpapi_lens'
+        ? (hasServerManagedSerpApi ? '' : config.serpApiKey)
+        : config.googleVisionApiKey
+    );
+    setConnectionStatus('idle');
+  };
+
+  const isSerpApiProvider = searchProvider === 'serpapi_lens';
+  const isServerManagedSerpApi = isSerpApiProvider && hasServerManagedSerpApi;
+
   const handleTestConnection = async () => {
-    if (!visionApiKey) {
+    if (!visionApiKey && !isServerManagedSerpApi) {
       addNotification('error', 'Please enter an API key first');
       return;
     }
@@ -51,8 +127,12 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
     setIsTestingConnection(true);
     setConnectionStatus('idle');
 
-    // Save temporarily for testing
-    saveVisionConfig(visionApiKey);
+    // Save temporarily for testing if the key is client-managed.
+    if (!isServerManagedSerpApi || visionApiKey.trim()) {
+      saveVisionConfig(visionApiKey, searchProvider);
+    } else {
+      saveVisionConfig('', 'serpapi_lens');
+    }
 
     try {
       const success = await testVisionApiConnection();
@@ -71,12 +151,59 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
     }
   };
 
+  // Developer tools state
+  const [isSeeding, setIsSeeding] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+
+  const handleSeedData = async () => {
+    if (!user || !currentBrand) {
+      addNotification('error', 'No user or brand found. Please sign in first.');
+      return;
+    }
+
+    setIsSeeding(true);
+    try {
+      const result = await seedDatabase(user.id, currentBrand.id);
+      if (result.success) {
+        addNotification('success', 'Demo data seeded successfully! Refresh the page to see changes.');
+      } else {
+        addNotification('error', `Failed to seed data: ${result.error}`);
+      }
+    } catch (error) {
+      addNotification('error', 'Failed to seed data');
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
+  const handleClearData = async () => {
+    if (!currentBrand) {
+      addNotification('error', 'No brand found.');
+      return;
+    }
+
+    setIsClearing(true);
+    try {
+      const result = await clearBrandData(currentBrand.id);
+      if (result.success) {
+        addNotification('success', 'Brand data cleared. Refresh to see changes.');
+      } else {
+        addNotification('error', 'Failed to clear data');
+      }
+    } catch (error) {
+      addNotification('error', 'Failed to clear data');
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   const sections = [
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },
     { id: 'integrations', label: 'Integrations', icon: Plug },
     { id: 'billing', label: 'Billing', icon: CreditCard },
+    { id: 'developer', label: 'Developer', icon: Database },
   ];
 
   return (
@@ -137,19 +264,59 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">First Name</label>
-                                        <input type="text" defaultValue="Viktor" className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none" />
+                                        <input
+                                          type="text"
+                                          value={firstName}
+                                          onChange={(e) => setFirstName(e.target.value)}
+                                          placeholder="Enter your first name"
+                                          className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                        />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Last Name</label>
-                                        <input type="text" defaultValue="Vaughn" className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none" />
+                                        <input
+                                          type="text"
+                                          value={lastName}
+                                          onChange={(e) => setLastName(e.target.value)}
+                                          placeholder="Enter your last name"
+                                          className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                        />
                                     </div>
                                 </div>
                                 <div>
+                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Email</label>
+                                    <input
+                                      type="email"
+                                      value={user?.email || ''}
+                                      disabled
+                                      className="w-full px-3 py-2 bg-surface border border-border rounded-none text-sm text-secondary cursor-not-allowed"
+                                    />
+                                </div>
+                                <div>
                                     <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Bio</label>
-                                    <textarea rows={3} defaultValue="Brand protection specialist." className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none resize-none" />
+                                    <textarea
+                                      rows={3}
+                                      value={bio}
+                                      onChange={(e) => setBio(e.target.value)}
+                                      placeholder="Tell us about yourself..."
+                                      className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none resize-none"
+                                    />
                                 </div>
                                 <div className="flex justify-end">
-                                    <Button size="sm">Save Changes</Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={handleSaveProfile}
+                                      disabled={isSavingProfile}
+                                    >
+                                      {isSavingProfile ? (
+                                        <>
+                                          <Loader2 size={14} className="animate-spin mr-1" />
+                                          Saving...
+                                        </>
+                                      ) : (
+                                        'Save Changes'
+                                      )}
+                                    </Button>
                                 </div>
                             </div>
                         </div>
@@ -260,32 +427,77 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
              {/* INTEGRATIONS SECTION */}
             {activeSection === 'integrations' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                    <BentoCard title="Google Cloud Vision API">
+                                        <BentoCard title="Reverse Image Search API">
                         <div className="mt-4 space-y-4">
                             <p className="text-sm text-secondary">
-                                Enable reverse image search to find where your images appear online.
-                                This uses Google Cloud Vision API's Web Detection feature.
+                                Select the provider used for reverse image matching against online duplicates and lookalikes.
                             </p>
+
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => handleProviderChange('google_vision')}
+                                    className={`px-3 py-1.5 text-xs border rounded-lg transition-colors ${
+                                        !isSerpApiProvider
+                                            ? 'bg-primary text-inverse border-primary'
+                                            : 'bg-background text-secondary border-border hover:text-primary'
+                                    }`}
+                                >
+                                    Google Vision
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleProviderChange('serpapi_lens')}
+                                    className={`px-3 py-1.5 text-xs border rounded-lg transition-colors ${
+                                        isSerpApiProvider
+                                            ? 'bg-primary text-inverse border-primary'
+                                            : 'bg-background text-secondary border-border hover:text-primary'
+                                    }`}
+                                >
+                                    SerpApi Google Lens
+                                </button>
+                            </div>
 
                             <div className="bg-surface/50 border border-border p-4 rounded-lg space-y-3">
                                 <h4 className="text-xs font-medium text-secondary uppercase tracking-wider">Setup Instructions</h4>
-                                <ol className="text-xs text-secondary space-y-1.5 list-decimal list-inside">
-                                    <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Google Cloud Console</a></li>
-                                    <li>Create a new project (or select existing)</li>
-                                    <li>Enable the <strong>Cloud Vision API</strong></li>
-                                    <li>Go to Credentials → Create API Key</li>
-                                    <li>Restrict the key to Cloud Vision API (recommended)</li>
-                                    <li>Paste the key below</li>
-                                </ol>
+                                {isSerpApiProvider ? (
+                                    <ol className="text-xs text-secondary space-y-1.5 list-decimal list-inside">
+                                        <li>Open <a href="https://serpapi.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">SerpApi Dashboard</a></li>
+                                        <li>{isServerManagedSerpApi ? 'Server-managed key is enabled in your environment' : 'Copy your SerpApi API key'}</li>
+                                        <li>Select <strong>SerpApi Google Lens</strong> as provider</li>
+                                        <li>{isServerManagedSerpApi ? 'Use Test Connection to validate proxy access' : 'Paste the key below and test connection'}</li>
+                                        <li>Keep uploaded assets in Supabase storage so signed URLs can be scanned</li>
+                                    </ol>
+                                ) : (
+                                    <ol className="text-xs text-secondary space-y-1.5 list-decimal list-inside">
+                                        <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Google Cloud Console</a></li>
+                                        <li>Create a new project (or select existing)</li>
+                                        <li>Enable the <strong>Cloud Vision API</strong></li>
+                                        <li>Go to Credentials -&gt; Create API Key</li>
+                                        <li>Restrict the key to Cloud Vision API (recommended)</li>
+                                        <li>Paste the key below</li>
+                                    </ol>
+                                )}
                                 <p className="text-[10px] text-secondary/70 mt-2">
-                                    Free tier: 1,000 searches/month
+                                    {isSerpApiProvider
+                                        ? 'SerpApi pricing depends on your SerpApi plan and search volume.'
+                                        : 'Google Vision free tier includes 1,000 Web Detection searches/month.'}
                                 </p>
                             </div>
 
                             <div>
                                 <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">
-                                    API Key
+                                    {isServerManagedSerpApi
+                                      ? 'SerpApi API Key (Server Managed)'
+                                      : isSerpApiProvider
+                                        ? 'SerpApi API Key'
+                                        : 'Google Vision API Key'}
                                 </label>
+                                {isServerManagedSerpApi && (
+                                    <p className="text-xs text-secondary mb-2">
+                                        Requests use the server proxy key from environment variables; no key is stored in browser localStorage.
+                                    </p>
+                                )}
                                 <div className="relative">
                                     <input
                                         type={showApiKey ? 'text' : 'password'}
@@ -294,13 +506,19 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                             setVisionApiKey(e.target.value);
                                             setConnectionStatus('idle');
                                         }}
-                                        placeholder="Enter your Google Cloud Vision API Key"
+                                        placeholder={isServerManagedSerpApi
+                                          ? 'Server-managed key is active'
+                                          : isSerpApiProvider
+                                            ? 'Enter your SerpApi key'
+                                            : 'Enter your Google Cloud Vision API key'}
                                         className="w-full px-3 py-2 pr-10 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none font-mono"
+                                        disabled={isServerManagedSerpApi}
                                     />
                                     <button
                                         type="button"
                                         onClick={() => setShowApiKey(!showApiKey)}
                                         className="absolute right-2 top-1/2 -translate-y-1/2 text-secondary hover:text-primary p-1"
+                                        disabled={isServerManagedSerpApi}
                                     >
                                         {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
                                     </button>
@@ -311,15 +529,19 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                 <Button
                                     onClick={handleSaveApiKey}
                                     size="sm"
-                                    disabled={!visionApiKey}
+                                    disabled={!visionApiKey && !isServerManagedSerpApi}
                                 >
-                                    Save API Key
+                                    {isServerManagedSerpApi
+                                      ? 'Use Server Key'
+                                      : isSerpApiProvider
+                                        ? 'Save SerpApi Key'
+                                        : 'Save Google Key'}
                                 </Button>
                                 <Button
                                     onClick={handleTestConnection}
                                     variant="secondary"
                                     size="sm"
-                                    disabled={!visionApiKey || isTestingConnection}
+                                    disabled={(!visionApiKey && !isServerManagedSerpApi) || isTestingConnection}
                                 >
                                     {isTestingConnection ? (
                                         <>
@@ -347,13 +569,14 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                         </div>
                     </BentoCard>
 
-                    <BentoCard title="Gemini AI (Chat Assistant)">
+                    <BentoCard title="Assistant Backend">
                         <div className="mt-4">
                             <p className="text-sm text-secondary mb-4">
-                                The AI chat assistant uses Google Gemini. Configure your API key in the <code className="bg-surface px-1 py-0.5 rounded text-xs">.env.local</code> file.
+                                The dashboard assistant now runs in local analytics mode by default.
+                                For production AI responses, connect a server endpoint and keep model API keys server-side only.
                             </p>
                             <div className="flex items-center gap-2 text-xs text-secondary/70">
-                                <code className="bg-surface px-2 py-1 rounded">GEMINI_API_KEY=your_key_here</code>
+                                <code className="bg-surface px-2 py-1 rounded">POST /api/assistant</code>
                             </div>
                         </div>
                     </BentoCard>
@@ -401,6 +624,86 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                 </div>
                             </div>
                             <Button variant="ghost" size="sm">Edit</Button>
+                        </div>
+                    </BentoCard>
+                </div>
+             )}
+
+             {/* DEVELOPER SECTION */}
+             {activeSection === 'developer' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+                    <BentoCard title="Seed Demo Data">
+                        <div className="mt-4 space-y-4">
+                            <p className="text-sm text-secondary">
+                                Populate your database with sample data to test the application. This will create sample keywords, whitelist entries, IP documents, infringements, and activity logs.
+                            </p>
+                            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
+                                <p className="text-xs text-yellow-500">
+                                    <strong>Note:</strong> This will add data to your current brand. Make sure you have a brand selected.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-secondary">
+                                <span>Current Brand:</span>
+                                <code className="bg-surface px-2 py-1 rounded">{currentBrand?.name || 'None'}</code>
+                            </div>
+                            <div className="flex gap-3">
+                                <Button
+                                    onClick={handleSeedData}
+                                    disabled={isSeeding || !currentBrand}
+                                    size="sm"
+                                >
+                                    {isSeeding ? (
+                                        <>
+                                            <Loader2 size={14} className="animate-spin mr-1" />
+                                            Seeding...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Database size={14} className="mr-1" />
+                                            Seed Demo Data
+                                        </>
+                                    )}
+                                </Button>
+                                <Button
+                                    onClick={handleClearData}
+                                    variant="outline"
+                                    disabled={isClearing || !currentBrand}
+                                    size="sm"
+                                >
+                                    {isClearing ? (
+                                        <>
+                                            <Loader2 size={14} className="animate-spin mr-1" />
+                                            Clearing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Trash2 size={14} className="mr-1" />
+                                            Clear Data
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
+                    </BentoCard>
+
+                    <BentoCard title="Debug Info">
+                        <div className="mt-4 space-y-2 font-mono text-xs">
+                            <div className="flex justify-between py-2 border-b border-border/50">
+                                <span className="text-secondary">User ID</span>
+                                <span className="text-primary">{user?.id || 'Not logged in'}</span>
+                            </div>
+                            <div className="flex justify-between py-2 border-b border-border/50">
+                                <span className="text-secondary">Brand ID</span>
+                                <span className="text-primary">{currentBrand?.id || 'No brand'}</span>
+                            </div>
+                            <div className="flex justify-between py-2 border-b border-border/50">
+                                <span className="text-secondary">Brand Name</span>
+                                <span className="text-primary">{currentBrand?.name || '-'}</span>
+                            </div>
+                            <div className="flex justify-between py-2">
+                                <span className="text-secondary">Email</span>
+                                <span className="text-primary">{user?.email || '-'}</span>
+                            </div>
                         </div>
                     </BentoCard>
                 </div>

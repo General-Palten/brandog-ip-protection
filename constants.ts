@@ -1,4 +1,4 @@
-import { InfringementItem, KeywordItem, PlatformType, InfringementStatus, ActivityLogItem } from './types';
+import { InfringementItem, KeywordItem, PlatformType, InfringementStatus, ActivityLogItem, CaseUpdateType } from './types';
 
 export const PLATFORM_CONFIG: Record<PlatformType, { label: string, color: string }> = {
   'Meta Ads': { label: 'Meta Ads', color: 'blue' },
@@ -6,16 +6,70 @@ export const PLATFORM_CONFIG: Record<PlatformType, { label: string, color: strin
   'Shopify': { label: 'Shopify', color: 'green' },
   'TikTok Shop': { label: 'TikTok Shop', color: 'black' },
   'Amazon': { label: 'Amazon', color: 'orange' },
-  'AliExpress': { label: 'AliExpress', color: 'red' }
+  'AliExpress': { label: 'AliExpress', color: 'red' },
+  'eBay': { label: 'eBay', color: 'blue' },
+  'Website': { label: 'Website', color: 'gray' }
 };
 
 export const STATUS_CONFIG: Record<InfringementStatus, { label: string, className: string }> = {
-  'pending': { label: 'Pending Review', className: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
-  'reported': { label: 'Reported', className: 'bg-green-100 text-green-700 border-green-200' },
-  'dismissed': { label: 'Dismissed', className: 'bg-gray-100 text-gray-600 border-gray-200' },
-  'takedown_in_progress': { label: 'In Progress', className: 'bg-blue-100 text-blue-700 border-blue-200' },
-  'takedown_confirmed': { label: 'Takedown Confirmed', className: 'bg-emerald-100 text-emerald-700 border-emerald-200' }
+  'detected': { label: 'Detected', className: 'bg-blue-100 text-blue-700 border-blue-200' },
+  'pending_review': { label: 'Pending Review', className: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+  'in_progress': { label: 'In Progress', className: 'bg-orange-100 text-orange-700 border-orange-200' },
+  'resolved': { label: 'Resolved', className: 'bg-green-100 text-green-700 border-green-200' },
+  'rejected': { label: 'Rejected', className: 'bg-gray-100 text-gray-600 border-gray-200' }
 };
+
+// Predefined case update types for lawyer-client communication
+export const CASE_UPDATE_TYPES: { type: CaseUpdateType; label: string; description: string; isPositive: boolean }[] = [
+  {
+    type: 'takedown_initiated',
+    label: 'Takedown Initiated',
+    description: 'We have initiated the takedown process for this case.',
+    isPositive: false
+  },
+  {
+    type: 'platform_contacted',
+    label: 'Platform Contacted',
+    description: 'We have contacted the platform\'s abuse/legal team.',
+    isPositive: false
+  },
+  {
+    type: 'dmca_sent',
+    label: 'DMCA Notice Sent',
+    description: 'A formal DMCA takedown notice has been submitted.',
+    isPositive: false
+  },
+  {
+    type: 'awaiting_response',
+    label: 'Awaiting Response',
+    description: 'Waiting for the platform to respond to our request.',
+    isPositive: false
+  },
+  {
+    type: 'follow_up_sent',
+    label: 'Follow-up Sent',
+    description: 'We have sent a follow-up to expedite the process.',
+    isPositive: false
+  },
+  {
+    type: 'escalated',
+    label: 'Case Escalated',
+    description: 'This case has been escalated for priority handling.',
+    isPositive: false
+  },
+  {
+    type: 'content_removed',
+    label: 'Content Removed',
+    description: 'The infringing content has been successfully removed!',
+    isPositive: true
+  },
+  {
+    type: 'case_closed',
+    label: 'Case Closed',
+    description: 'This case has been resolved and closed.',
+    isPositive: true
+  }
+];
 
 export const MOCK_ACTIVITY: ActivityLogItem[] = [
   {
@@ -67,7 +121,7 @@ export const MOCK_INFRINGEMENTS: InfringementItem[] = [
     siteVisitors: 7500,
     platform: 'Meta Ads',
     revenueLost: 250,
-    status: 'pending',
+    status: 'detected',
     detectedAt: '2023-10-25',
     country: 'US',
     infringingUrl: 'https://super-deals-daily.com/products/notebook',
@@ -85,7 +139,7 @@ export const MOCK_INFRINGEMENTS: InfringementItem[] = [
     siteVisitors: 60000,
     platform: 'Instagram',
     revenueLost: 250,
-    status: 'pending',
+    status: 'detected',
     detectedAt: '2023-10-24',
     country: 'CN',
     infringingUrl: 'https://instagram.com/cheap_textures_official',
@@ -103,7 +157,7 @@ export const MOCK_INFRINGEMENTS: InfringementItem[] = [
     siteVisitors: 7500,
     platform: 'Shopify',
     revenueLost: 250,
-    status: 'takedown_in_progress',
+    status: 'in_progress',
     detectedAt: '2023-10-23',
     country: 'US',
     infringingUrl: 'https://fast-tech-gear.myshopify.com',
@@ -121,7 +175,7 @@ export const MOCK_INFRINGEMENTS: InfringementItem[] = [
     siteVisitors: 15000,
     platform: 'TikTok Shop',
     revenueLost: 250,
-    status: 'pending',
+    status: 'detected',
     detectedAt: '2023-10-22',
     country: 'UK',
     infringingUrl: 'https://shop.tiktok.com/view/product/123456',
@@ -139,7 +193,7 @@ export const MOCK_INFRINGEMENTS: InfringementItem[] = [
     siteVisitors: 1200,
     platform: 'Amazon',
     revenueLost: 1200,
-    status: 'pending',
+    status: 'detected',
     detectedAt: '2023-10-21',
     country: 'US',
     infringingUrl: 'https://amazon.com/dp/B08XYZ123',
@@ -157,7 +211,7 @@ export const MOCK_INFRINGEMENTS: InfringementItem[] = [
     siteVisitors: 8900,
     platform: 'AliExpress',
     revenueLost: 450,
-    status: 'pending',
+    status: 'detected',
     detectedAt: '2023-10-20',
     country: 'CN',
     infringingUrl: 'https://aliexpress.com/item/100500123456',

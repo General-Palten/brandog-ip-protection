@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { 
-  Search, Type, Image, UserCheck, UserX, FileText, 
-  LayoutDashboard, FileBarChart, Settings, Check
+import {
+  Search, Type, Image, UserCheck, UserX, FileText,
+  LayoutDashboard, FileBarChart, Settings, Check, Shield
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import CreateBrandModal from './CreateBrandModal';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  currentBrand: string;
-  setCurrentBrand: (brand: string) => void;
+  isAdminMode?: boolean;
 }
 
 const MinimalistDogLogo = () => (
@@ -31,13 +32,23 @@ const MinimalistDogLogo = () => (
   </svg>
 );
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentBrand, setCurrentBrand }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdminMode }) => {
+  const { brands, currentBrand, setCurrentBrandId } = useAuth();
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
+  const [isCreateBrandModalOpen, setIsCreateBrandModalOpen] = useState(false);
+
+  // Generate color based on brand name for consistency
+  const getBrandColor = (name: string) => {
+    const colors = ['bg-green-500', 'bg-purple-500', 'bg-blue-500', 'bg-orange-500', 'bg-pink-500'];
+    const index = name.charCodeAt(0) % colors.length;
+    return colors[index];
+  };
 
   const navItems = [
     { group: 'Overview', items: [
       { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
       { id: 'search', icon: Search, label: 'Search', hasAlert: true },
+      ...(isAdminMode ? [{ id: 'admin', icon: Shield, label: 'Admin', hasAlert: true }] : []),
     ]},
     { group: 'Protection', items: [
       { id: 'keywords', icon: Type, label: 'Keywords' },
@@ -51,10 +62,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentBrand
     ]}
   ];
 
-  const brands = [
-    { id: 'PrimeTrendz', label: 'PrimeTrendz', color: 'bg-green-500' },
-    { id: 'LuxeLife', label: 'LuxeLife', color: 'bg-purple-500' }
-  ];
+  // Map brands from AuthContext for display
+  const brandItems = brands.map(b => ({
+    id: b.id,
+    label: b.name,
+    color: getBrandColor(b.name)
+  }));
 
   return (
     <div className="fixed inset-y-0 left-0 z-50 w-16 bg-background border-r border-border flex flex-col items-center py-6 gap-6">
@@ -120,21 +133,27 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentBrand
               <div className="fixed inset-0 z-10" onClick={() => setIsBrandMenuOpen(false)}></div>
               <div className="absolute bottom-full left-0 mb-2 ml-1 w-48 bg-background border border-border shadow-xl z-20 animate-in slide-in-from-left-2 fade-in">
                   <div className="p-1">
-                      {brands.map(brand => (
-                          <button 
+                      {brandItems.map(brand => (
+                          <button
                               key={brand.id}
-                              onClick={() => { setCurrentBrand(brand.id); setIsBrandMenuOpen(false); }}
-                              className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between group transition-colors ${currentBrand === brand.id ? 'bg-surface text-primary' : 'text-secondary hover:text-primary hover:bg-surface/50'}`}
+                              onClick={() => { setCurrentBrandId(brand.id); setIsBrandMenuOpen(false); }}
+                              className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between group transition-colors ${currentBrand?.id === brand.id ? 'bg-surface text-primary' : 'text-secondary hover:text-primary hover:bg-surface/50'}`}
                           >
                               <div className="flex items-center gap-2">
                                   <div className={`w-2 h-2 rounded-full ${brand.color}`}></div>
                                   {brand.label}
                               </div>
-                              {currentBrand === brand.id && <Check size={12} />}
+                              {currentBrand?.id === brand.id && <Check size={12} />}
                           </button>
                       ))}
                       <div className="h-px bg-border my-1"></div>
-                      <button className="w-full text-left px-3 py-2 text-xs text-secondary hover:text-primary hover:bg-surface/50 transition-colors">
+                      <button
+                        onClick={() => {
+                          setIsBrandMenuOpen(false);
+                          setIsCreateBrandModalOpen(true);
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs text-secondary hover:text-primary hover:bg-surface/50 transition-colors"
+                      >
                           + Add Brand
                       </button>
                   </div>
@@ -142,18 +161,23 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentBrand
               </>
           )}
           
-          <button 
+          <button
             onClick={() => setIsBrandMenuOpen(!isBrandMenuOpen)}
             className="w-10 h-10 border border-border bg-surface text-primary hover:border-secondary transition-colors flex items-center justify-center group relative"
           >
-             <span className="font-serif font-bold text-lg">{currentBrand.charAt(0)}</span>
-             
+             <span className="font-serif font-bold text-lg">{currentBrand?.name?.charAt(0) || '?'}</span>
+
              <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-background border border-border rounded-full flex items-center justify-center">
-                 <div className={`w-1.5 h-1.5 rounded-full ${brands.find(b => b.id === currentBrand)?.color || 'bg-gray-500'}`}></div>
+                 <div className={`w-1.5 h-1.5 rounded-full ${currentBrand ? getBrandColor(currentBrand.name) : 'bg-gray-500'}`}></div>
              </div>
           </button>
         </div>
       </div>
+
+      <CreateBrandModal
+        isOpen={isCreateBrandModalOpen}
+        onClose={() => setIsCreateBrandModalOpen(false)}
+      />
     </div>
   );
 };
