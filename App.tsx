@@ -10,7 +10,7 @@ import CaseDetailModal from './components/CaseDetailModal';
 import AuthScreen from './components/AuthScreen';
 import OnboardingScreen from './components/OnboardingScreen';
 import { InfringementItem } from './types';
-import { Search, Sun, Moon, Bell, User, Shield, CreditCard, LogOut, Command, Building2, Scale, ArrowRight, ExternalLink, Loader2 } from 'lucide-react';
+import { Search, Sun, Moon, Bell, User, Shield, CreditCard, LogOut, Command, Building2, Scale, ArrowRight, ExternalLink, Loader2, PanelLeftClose, PanelLeft } from 'lucide-react';
 import { isSupabaseConfigured } from './lib/supabase';
 
 // Views
@@ -140,6 +140,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [selectedNotificationCase, setSelectedNotificationCase] = useState<InfringementItem | null>(null);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
 
   useEffect(() => {
     if (!isAdminMode && activeSidebarTab === 'admin') {
@@ -195,19 +196,29 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
         activeTab={activeSidebarTab}
         setActiveTab={setActiveSidebarTab}
         isAdminMode={isAdminMode}
+        isExpanded={isSidebarExpanded}
       />
       
       {/* Global Command Palette */}
       <CommandPalette navigate={setActiveSidebarTab} />
       
       {/* Main Content Area */}
-      <div className="flex-1 ml-16 flex flex-col min-h-screen relative transition-colors duration-300">
+      <div className={`flex-1 flex flex-col min-h-screen relative transition-all duration-300 ${isSidebarExpanded ? 'ml-56' : 'ml-16'}`}>
         
         {/* Top Bar - Solid background to prevent transparency on scroll */}
         <header className="sticky top-0 z-40 bg-background border-b border-border px-6 py-4 flex items-center justify-between">
-           {/* Left: Search */}
+           {/* Left: Sidebar Toggle + Search */}
            <div className="flex items-center gap-4 flex-1">
-              <div 
+              {/* Sidebar Toggle Button */}
+              <button
+                onClick={() => setIsSidebarExpanded(!isSidebarExpanded)}
+                className="p-2 text-secondary hover:text-primary hover:bg-surface border border-border rounded-none transition-colors"
+                title={isSidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+              >
+                {isSidebarExpanded ? <PanelLeftClose size={18} /> : <PanelLeft size={18} />}
+              </button>
+
+              <div
                 className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-surface border border-border rounded-none text-secondary w-full max-w-sm group focus-within:border-primary/50 focus-within:text-primary transition-colors cursor-text"
                 onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
               >

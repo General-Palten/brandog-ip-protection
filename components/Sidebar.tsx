@@ -10,6 +10,7 @@ interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   isAdminMode?: boolean;
+  isExpanded?: boolean;
 }
 
 const MinimalistDogLogo = () => (
@@ -32,7 +33,7 @@ const MinimalistDogLogo = () => (
   </svg>
 );
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdminMode }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdminMode, isExpanded = false }) => {
   const { brands, currentBrand, setCurrentBrandId } = useAuth();
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
   const [isCreateBrandModalOpen, setIsCreateBrandModalOpen] = useState(false);
@@ -70,40 +71,48 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdminMode 
   }));
 
   return (
-    <div className="fixed inset-y-0 left-0 z-50 w-16 bg-background border-r border-border flex flex-col items-center py-6 gap-6">
+    <div className={`fixed inset-y-0 left-0 z-50 bg-background border-r border-border flex flex-col py-6 gap-6 transition-all duration-300 ${isExpanded ? 'w-56 px-4' : 'w-16 items-center'}`}>
       {/* Logo */}
-      <button 
+      <button
         onClick={() => setActiveTab('dashboard')}
-        className="w-10 h-10 flex items-center justify-center text-primary transition-opacity hover:opacity-80 cursor-pointer"
+        className={`flex items-center text-primary transition-opacity hover:opacity-80 cursor-pointer ${isExpanded ? 'gap-3 px-2' : 'w-10 h-10 justify-center'}`}
         title="Go to Dashboard"
       >
          <MinimalistDogLogo />
+         {isExpanded && <span className="font-serif font-bold text-lg">Brandog</span>}
       </button>
 
       {/* Nav */}
-      <nav className="flex-1 flex flex-col gap-8 w-full px-2 mt-4">
+      <nav className={`flex-1 flex flex-col gap-6 w-full mt-4 ${isExpanded ? 'px-0' : 'px-2'}`}>
         {navItems.map((group, idx) => (
-          <div key={idx} className="flex flex-col gap-2 items-center w-full border-t border-border pt-4 first:border-0 first:pt-0">
+          <div key={idx} className={`flex flex-col gap-2 w-full border-t border-border pt-4 first:border-0 first:pt-0 ${isExpanded ? 'items-stretch' : 'items-center'}`}>
+            {isExpanded && (
+              <span className="text-[10px] text-secondary uppercase tracking-wider font-medium px-2 mb-1">{group.group}</span>
+            )}
             {group.items.map((item) => (
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`p-2.5 rounded-none transition-all duration-200 group relative w-10 h-10 flex items-center justify-center
-                  ${activeTab === item.id 
-                    ? 'text-primary bg-surface border border-border' 
+                className={`p-2.5 rounded-none transition-all duration-200 group relative flex items-center
+                  ${isExpanded ? 'w-full gap-3 justify-start' : 'w-10 h-10 justify-center'}
+                  ${activeTab === item.id
+                    ? 'text-primary bg-surface border border-border'
                     : 'text-secondary hover:text-primary hover:bg-surface/50'}`}
-                title={item.label}
+                title={isExpanded ? undefined : item.label}
               >
-                <item.icon size={20} strokeWidth={1.5} />
-                
+                <item.icon size={20} strokeWidth={1.5} className="shrink-0" />
+                {isExpanded && <span className="text-sm font-medium">{item.label}</span>}
+
                 {item.hasAlert && (
-                   <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                   <span className={`w-1.5 h-1.5 bg-green-500 rounded-full ${isExpanded ? 'ml-auto' : 'absolute top-2 right-2'}`}></span>
                 )}
-                
-                {/* Tooltip */}
-                <span className="absolute left-full top-1/2 -translate-y-1/2 ml-4 px-2 py-1 bg-surface border border-border text-primary text-xs pointer-events-none whitespace-nowrap z-50 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {item.label}
-                </span>
+
+                {/* Tooltip - only show when collapsed */}
+                {!isExpanded && (
+                  <span className="absolute left-full top-1/2 -translate-y-1/2 ml-4 px-2 py-1 bg-surface border border-border text-primary text-xs pointer-events-none whitespace-nowrap z-50 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {item.label}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -111,27 +120,29 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdminMode 
       </nav>
 
       {/* Bottom Actions */}
-      <div className="mt-auto flex flex-col gap-4 items-center w-full px-2">
-        {/* Settings - Moved Up */}
-        <button 
+      <div className={`mt-auto flex flex-col gap-4 w-full ${isExpanded ? 'px-0 items-stretch' : 'px-2 items-center'}`}>
+        {/* Settings */}
+        <button
           onClick={() => setActiveTab('settings')}
-          className={`p-2.5 rounded-none transition-all duration-200 w-10 h-10 flex items-center justify-center
-            ${activeTab === 'settings' 
-              ? 'text-primary bg-surface border border-border' 
+          className={`p-2.5 rounded-none transition-all duration-200 flex items-center
+            ${isExpanded ? 'w-full gap-3 justify-start' : 'w-10 h-10 justify-center'}
+            ${activeTab === 'settings'
+              ? 'text-primary bg-surface border border-border'
               : 'text-secondary hover:text-primary hover:bg-surface/50'}`}
-          title="Settings"
+          title={isExpanded ? undefined : 'Settings'}
         >
-          <Settings size={20} strokeWidth={1.5} />
+          <Settings size={20} strokeWidth={1.5} className="shrink-0" />
+          {isExpanded && <span className="text-sm font-medium">Settings</span>}
         </button>
 
         <div className="w-full h-px bg-border"></div>
 
         {/* Brand Selector */}
-        <div className="relative">
+        <div className={`relative ${isExpanded ? 'w-full' : ''}`}>
           {isBrandMenuOpen && (
               <>
               <div className="fixed inset-0 z-10" onClick={() => setIsBrandMenuOpen(false)}></div>
-              <div className="absolute bottom-full left-0 mb-2 ml-1 w-48 bg-background border border-border shadow-xl z-20 animate-in slide-in-from-left-2 fade-in">
+              <div className={`absolute bottom-full mb-2 w-48 bg-background border border-border shadow-xl z-20 animate-in slide-in-from-left-2 fade-in ${isExpanded ? 'left-0' : 'left-0 ml-1'}`}>
                   <div className="p-1">
                       {brandItems.map(brand => (
                           <button
@@ -160,16 +171,24 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdminMode 
               </div>
               </>
           )}
-          
+
           <button
             onClick={() => setIsBrandMenuOpen(!isBrandMenuOpen)}
-            className="w-10 h-10 border border-border bg-surface text-primary hover:border-secondary transition-colors flex items-center justify-center group relative"
+            className={`border border-border bg-surface text-primary hover:border-secondary transition-colors flex items-center group relative
+              ${isExpanded ? 'w-full p-2.5 gap-3 justify-start' : 'w-10 h-10 justify-center'}`}
           >
-             <span className="font-serif font-bold text-lg">{currentBrand?.name?.charAt(0) || '?'}</span>
-
-             <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-background border border-border rounded-full flex items-center justify-center">
-                 <div className={`w-1.5 h-1.5 rounded-full ${currentBrand ? getBrandColor(currentBrand.name) : 'bg-gray-500'}`}></div>
+             <div className="w-8 h-8 flex items-center justify-center shrink-0 relative">
+               <span className="font-serif font-bold text-lg">{currentBrand?.name?.charAt(0) || '?'}</span>
+               <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-background border border-border rounded-full flex items-center justify-center">
+                   <div className={`w-1.5 h-1.5 rounded-full ${currentBrand ? getBrandColor(currentBrand.name) : 'bg-gray-500'}`}></div>
+               </div>
              </div>
+             {isExpanded && (
+               <div className="flex flex-col items-start min-w-0">
+                 <span className="text-sm font-medium truncate">{currentBrand?.name || 'Select Brand'}</span>
+                 <span className="text-[10px] text-secondary">Switch brand</span>
+               </div>
+             )}
           </button>
         </div>
       </div>
