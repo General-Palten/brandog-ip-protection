@@ -14,7 +14,7 @@ import { Search, Sun, Moon, Bell, User, Shield, CreditCard, LogOut, Command, Bui
 import { isSupabaseConfigured } from './lib/supabase';
 
 // Views
-import SearchCopycats from './components/views/SearchCopycats';
+import Infringements from './components/views/Infringements';
 import Keywords from './components/views/Keywords';
 import ImagesVideos from './components/views/ImagesVideos';
 import Whitelist from './components/views/Whitelist';
@@ -388,7 +388,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
         <main className="flex-1 p-6 lg:p-10 pb-32 max-w-[1600px] mx-auto w-full">
           {activeSidebarTab === 'search' && (
             <div className="animate-in fade-in slide-in-from-bottom-2">
-              <SearchCopycats />
+              <Infringements />
             </div>
           )}
           {activeSidebarTab === 'keywords' && (

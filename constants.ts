@@ -1,14 +1,18 @@
 import { InfringementItem, KeywordItem, PlatformType, InfringementStatus, ActivityLogItem, CaseUpdateType } from './types';
 
-export const PLATFORM_CONFIG: Record<PlatformType, { label: string, color: string }> = {
-  'Meta Ads': { label: 'Meta Ads', color: 'blue' },
-  'Instagram': { label: 'Instagram', color: 'pink' },
-  'Shopify': { label: 'Shopify', color: 'green' },
-  'TikTok Shop': { label: 'TikTok Shop', color: 'black' },
-  'Amazon': { label: 'Amazon', color: 'orange' },
-  'AliExpress': { label: 'AliExpress', color: 'red' },
-  'eBay': { label: 'eBay', color: 'blue' },
-  'Website': { label: 'Website', color: 'gray' }
+export const PLATFORM_CONFIG: Record<PlatformType, { label: string, color: string, category: 'social' | 'marketplace' }> = {
+  'Meta Ads': { label: 'Meta Ads', color: 'blue', category: 'social' },
+  'Instagram': { label: 'Instagram', color: 'pink', category: 'social' },
+  'TikTok Shop': { label: 'TikTok Shop', color: 'black', category: 'social' },
+  'Amazon': { label: 'Amazon', color: 'orange', category: 'marketplace' },
+  'AliExpress': { label: 'AliExpress', color: 'red', category: 'marketplace' },
+  'eBay': { label: 'eBay', color: 'blue', category: 'marketplace' },
+  'Shopify': { label: 'Shopify', color: 'green', category: 'marketplace' },
+  'Walmart': { label: 'Walmart', color: 'blue', category: 'marketplace' },
+  'Etsy': { label: 'Etsy', color: 'orange', category: 'marketplace' },
+  'Redbubble': { label: 'Redbubble', color: 'red', category: 'marketplace' },
+  'Printerval': { label: 'Printerval', color: 'purple', category: 'marketplace' },
+  'Website': { label: 'Website', color: 'gray', category: 'marketplace' }
 };
 
 export const STATUS_CONFIG: Record<InfringementStatus, { label: string, className: string }> = {
@@ -257,7 +261,7 @@ export const MOCK_DOCS = [
 
 export const NAV_CATEGORIES = [
   { title: "Products", items: [
-    { id: 'search', label: 'Search Copycats', icon: 'Search' },
+    { id: 'search', label: 'Infringements', icon: 'Search' },
     { id: 'keywords', label: 'Keywords', icon: 'Type' },
     { id: 'images', label: 'Images & Videos', icon: 'Image' },
     { id: 'whitelist', label: 'Whitelist', icon: 'UserCheck' },

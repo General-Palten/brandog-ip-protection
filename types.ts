@@ -1,8 +1,14 @@
 import React from 'react';
 
-export type PlatformType = 'Meta Ads' | 'Instagram' | 'Shopify' | 'TikTok Shop' | 'Amazon' | 'AliExpress' | 'eBay' | 'Website';
+export type PlatformType = 'Meta Ads' | 'Instagram' | 'Shopify' | 'TikTok Shop' | 'Amazon' | 'AliExpress' | 'eBay' | 'Website' | 'Walmart' | 'Etsy' | 'Redbubble' | 'Printerval';
 
 export type InfringementStatus = 'detected' | 'pending_review' | 'in_progress' | 'resolved' | 'rejected';
+
+export interface TrademarkMatch {
+  name: string;              // e.g., "Brand A"
+  foundIn: string;           // e.g., "t-shirt graphic"
+  matchingProducts: string[]; // e.g., ["Shirts", "Graphic T-shirts"]
+}
 
 export interface InfringementItem {
   id: string;
@@ -30,6 +36,11 @@ export interface InfringementItem {
     provider: string;
     ipAddress: string;
   };
+  // Enhanced modal fields
+  images?: string[];              // Multiple images for carousel
+  trademarkMatches?: TrademarkMatch[]; // Trademark matches found
+  analysisText?: string;          // AI analysis text
+  autoTakedown?: boolean;         // Whether auto-takedown is enabled
 }
 
 // Predefined status update types for lawyers

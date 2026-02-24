@@ -47,7 +47,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ navigate }) => {
   const commands: CommandItem[] = [
     // Navigation
     { id: 'nav-dash', label: 'Go to Dashboard', icon: LayoutDashboard, section: 'Navigation', action: () => navigate('dashboard') },
-    { id: 'nav-search', label: 'Search Copycats', icon: Search, section: 'Navigation', action: () => navigate('search') },
+    { id: 'nav-search', label: 'Infringements', icon: Search, section: 'Navigation', action: () => navigate('search') },
     { id: 'nav-kw', label: 'Manage Keywords', icon: Type, section: 'Navigation', action: () => navigate('keywords') },
     { id: 'nav-assets', label: 'View Assets', icon: Image, section: 'Navigation', action: () => navigate('images') },
     { id: 'nav-white', label: 'Whitelist', icon: UserCheck, section: 'Navigation', action: () => navigate('whitelist') },

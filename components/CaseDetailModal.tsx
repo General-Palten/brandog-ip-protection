@@ -5,11 +5,13 @@ import Modal from './ui/Modal';
 import Button from './ui/Button';
 import PlatformIcon from './ui/PlatformIcon';
 import StatusBadge from './ui/StatusBadge';
+import ImageCarousel from './ui/ImageCarousel';
+import TrademarkMatchPanel from './TrademarkMatchPanel';
 import { useDashboard } from '../context/DashboardContext';
 import {
   ExternalLink, Copy, Camera, FileText,
   ShieldAlert, CheckCircle, XCircle, Send, Server, ImageOff,
-  Shield, Clock, MessageSquare, User
+  Shield, Clock, MessageSquare, User, Zap
 } from 'lucide-react';
 
 interface CaseDetailModalProps {
@@ -92,11 +94,17 @@ const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
             <PlatformIcon platform={item.platform} size={20} showLabel className="text-primary font-medium" />
             <div className="h-4 w-px bg-border"></div>
             <StatusBadge status={item.status} />
+            {item.autoTakedown && (
+              <span className="flex items-center gap-1 px-2 py-0.5 bg-green-500/10 text-green-600 border border-green-500/20 rounded text-xs font-medium">
+                <Zap size={12} />
+                Auto-Takedown
+              </span>
+            )}
             <span className="text-xs text-secondary font-mono">Detected: {item.detectedAt}</span>
           </div>
-          <a 
-            href={item.infringingUrl} 
-            target="_blank" 
+          <a
+            href={item.infringingUrl}
+            target="_blank"
             rel="noreferrer"
             className="text-xs flex items-center gap-1 text-primary hover:underline"
           >
@@ -137,7 +145,7 @@ const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
           {/* OVERVIEW TAB */}
           {activeTab === 'overview' && (
             <div className="space-y-6 animate-in fade-in">
-              {/* Side by Side */}
+              {/* Image Comparison - Enhanced with Carousel when multiple images */}
               <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
@@ -169,29 +177,57 @@ const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                     <span className="text-xs font-bold text-red-500 uppercase tracking-wider">Infringing Listing</span>
                     <span className="text-xs font-mono text-red-500">{item.similarityScore}% Match</span>
                   </div>
-                  <div className="h-48 bg-surface border-2 border-red-500/30 rounded-lg overflow-hidden relative group">
-                    {item.copycatImage && !imageLoadError.copycat ? (
-                      <>
-                        <img
-                          src={item.copycatImage}
-                          alt="Infringement"
-                          className="w-full h-full object-contain"
-                          onError={() => setImageLoadError(prev => ({ ...prev, copycat: true }))}
-                        />
-                        {/* Visual Overlay for AI Detection zones could go here */}
-                        <div className="absolute bottom-2 left-2 right-2 bg-black/70 backdrop-blur-md text-white p-2 rounded text-xs">
-                          AI identified {item.similarityScore}% similarity match.
+                  {/* Use ImageCarousel if multiple images available */}
+                  {item.images && item.images.length > 1 ? (
+                    <ImageCarousel
+                      images={item.images}
+                      alt="Infringement"
+                      className="h-48"
+                    />
+                  ) : (
+                    <div className="h-48 bg-surface border-2 border-red-500/30 rounded-lg overflow-hidden relative group">
+                      {item.copycatImage && !imageLoadError.copycat ? (
+                        <>
+                          <img
+                            src={item.copycatImage}
+                            alt="Infringement"
+                            className="w-full h-full object-contain"
+                            onError={() => setImageLoadError(prev => ({ ...prev, copycat: true }))}
+                          />
+                          <div className="absolute bottom-2 left-2 right-2 bg-black/70 backdrop-blur-md text-white p-2 rounded text-xs">
+                            AI identified {item.similarityScore}% similarity match.
+                          </div>
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-red-400 gap-2">
+                          <ImageOff size={32} />
+                          <span className="text-xs">No image available</span>
                         </div>
-                      </>
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center text-red-400 gap-2">
-                        <ImageOff size={32} />
-                        <span className="text-xs">No image available</span>
-                      </div>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {/* Trademark Match Panel - Show if matches exist */}
+              {item.trademarkMatches && item.trademarkMatches.length > 0 && (
+                <TrademarkMatchPanel matches={item.trademarkMatches} />
+              )}
+
+              {/* AI Analysis Text - Show if available */}
+              {item.analysisText && (
+                <div className="p-4 bg-blue-500/5 border border-blue-500/20 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-blue-500/10 rounded shrink-0">
+                      <Shield className="text-blue-500" size={16} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium text-primary mb-1">AI Analysis</h4>
+                      <p className="text-xs text-secondary leading-relaxed">{item.analysisText}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Infringing URL */}
               {item.infringingUrl && (

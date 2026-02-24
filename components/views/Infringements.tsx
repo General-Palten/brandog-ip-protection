@@ -1,14 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import StatsCard from '../StatsCard';
 import InfringementCard from '../InfringementCard';
+import InfringementTable from '../InfringementTable';
 import CaseDetailModal from '../CaseDetailModal';
 import { useDashboard } from '../../context/DashboardContext';
-import { InfringementItem } from '../../types';
-import { 
-  Flag, Users, DollarSign, Search, Settings, Archive, ChevronDown, ChevronsUpDown
+import { InfringementItem, PlatformType } from '../../types';
+import { PLATFORM_CONFIG } from '../../constants';
+import {
+  Flag, Users, DollarSign, Search, Settings, Archive, ChevronDown, ChevronsUpDown,
+  LayoutGrid, List
 } from 'lucide-react';
 
-const SearchCopycats: React.FC = () => {
+const Infringements: React.FC = () => {
   const { infringements, reportInfringement, dismissInfringement, undoInfringementStatus, takedownRequests } = useDashboard();
 
   // Count cases with unread messages (for the "In Progress" badge)
@@ -30,6 +33,7 @@ const SearchCopycats: React.FC = () => {
   const [selectedItem, setSelectedItem] = useState<InfringementItem | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'pending' | 'in_progress' | 'resolved'>('pending');
+  const [viewType, setViewType] = useState<'grid' | 'table'>('grid');
 
   const totalPotentialInfringers = infringements.filter(i => i.status === 'detected').length;
   const combinedTraffic = infringements.reduce((acc, curr) => acc + curr.siteVisitors, 0);
@@ -88,7 +92,7 @@ const SearchCopycats: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-6">
          <div>
-            <h1 className="font-serif text-3xl text-primary font-medium">Search Copycats</h1>
+            <h1 className="font-serif text-3xl text-primary font-medium">Infringements</h1>
             <p className="text-secondary mt-1 text-sm">Real-time scan results from your active keywords.</p>
          </div>
          <div className="flex bg-surface border border-border p-1 rounded-lg">
@@ -169,14 +173,26 @@ const SearchCopycats: React.FC = () => {
 
             {/* Platform Filter */}
             <div className="relative">
-              <select 
+              <select
                  value={selectedPlatformTab}
                  onChange={(e) => setSelectedPlatformTab(e.target.value)}
-                 className="appearance-none pl-4 pr-10 py-2.5 bg-background border border-border rounded-lg text-sm font-medium text-primary focus:outline-none focus:border-zinc-600 cursor-pointer hover:bg-surface transition-colors min-w-[160px]"
+                 className="appearance-none pl-4 pr-10 py-2.5 bg-background border border-border rounded-lg text-sm font-medium text-primary focus:outline-none focus:border-zinc-600 cursor-pointer hover:bg-surface transition-colors min-w-[180px]"
               >
-                <option value="all">Filter by Platform</option>
-                <option value="social">Social</option>
-                <option value="marketplace">Marketplace</option>
+                <option value="all">All Platforms</option>
+                <optgroup label="Social">
+                  {(Object.entries(PLATFORM_CONFIG) as [PlatformType, typeof PLATFORM_CONFIG[PlatformType]][])
+                    .filter(([, config]) => config.category === 'social')
+                    .map(([platform, config]) => (
+                      <option key={platform} value={platform.toLowerCase()}>{config.label}</option>
+                    ))}
+                </optgroup>
+                <optgroup label="Marketplace">
+                  {(Object.entries(PLATFORM_CONFIG) as [PlatformType, typeof PLATFORM_CONFIG[PlatformType]][])
+                    .filter(([, config]) => config.category === 'marketplace')
+                    .map(([platform, config]) => (
+                      <option key={platform} value={platform.toLowerCase()}>{config.label}</option>
+                    ))}
+                </optgroup>
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-secondary pointer-events-none" size={14} />
             </div>
@@ -213,12 +229,30 @@ const SearchCopycats: React.FC = () => {
 
             <div className="hidden xl:block xl:flex-1" />
 
+            {/* View Toggle */}
+            <div className="flex items-center border border-border rounded-lg overflow-hidden">
+              <button
+                onClick={() => setViewType('grid')}
+                className={`p-2.5 transition-colors ${viewType === 'grid' ? 'bg-primary text-inverse' : 'bg-background text-secondary hover:text-primary hover:bg-surface'}`}
+                title="Grid view"
+              >
+                <LayoutGrid size={16} />
+              </button>
+              <button
+                onClick={() => setViewType('table')}
+                className={`p-2.5 transition-colors ${viewType === 'table' ? 'bg-primary text-inverse' : 'bg-background text-secondary hover:text-primary hover:bg-surface'}`}
+                title="Table view"
+              >
+                <List size={16} />
+              </button>
+            </div>
+
             {/* Automation Rules */}
             <button className="flex items-center gap-2 px-4 py-2.5 bg-background border border-border rounded-lg text-sm font-medium text-primary hover:bg-surface transition-colors">
               <Settings size={16} />
               <span className="hidden sm:inline">Automation Rules</span>
             </button>
-            
+
             {/* Archive Button */}
             <button className="p-2.5 bg-background border border-border rounded-lg text-primary hover:bg-surface transition-colors">
                 <Archive size={18} />
@@ -226,20 +260,22 @@ const SearchCopycats: React.FC = () => {
           </div>
       </div>
 
-      {/* Grid */}
+      {/* Content - Grid or Table */}
       {filteredItems.length === 0 ? (
           <div className="py-20 text-center border border-dashed border-border rounded-lg">
              <div className="w-12 h-12 bg-surface rounded-full flex items-center justify-center mx-auto mb-4 text-secondary">
                  <Search size={24} />
              </div>
-             <p className="text-secondary">No copycats found matching your filters.</p>
+             <p className="text-secondary">No infringements found matching your filters.</p>
           </div>
+      ) : viewType === 'table' ? (
+        <InfringementTable items={filteredItems} onRowClick={openDetail} />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredItems.map(item => (
             <div key={item.id} onClick={() => openDetail(item)} className="cursor-pointer relative group">
-                <InfringementCard 
-                    item={item} 
+                <InfringementCard
+                    item={item}
                     onReport={(e) => { e.stopPropagation(); handleReport(item.id); }}
                     onDismiss={(e) => { e.stopPropagation(); handleDismiss(item.id); }}
                 />
@@ -265,4 +301,4 @@ const SearchCopycats: React.FC = () => {
   );
 };
 
-export default SearchCopycats;
+export default Infringements;
