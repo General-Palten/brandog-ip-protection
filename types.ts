@@ -159,3 +159,133 @@ export interface VisionSearchResponse {
   visuallySimilarImages: { url: string }[];
   webEntities: VisionWebEntity[];
 }
+
+// Settings - Audit Log Types
+export type AuditLogActionType =
+  | 'detection'
+  | 'takedown'
+  | 'case_update'
+  | 'resolution'
+  | 'scan'
+  | 'keyword'
+  | 'user_action'
+  | 'security'
+  | 'report';
+
+export type AuditLogLevel = 'info' | 'warning' | 'success' | 'danger';
+
+export interface AuditLogEntry {
+  id: string;
+  actionType: AuditLogActionType;
+  title: string;
+  target: string;
+  user: string;
+  timestamp: string;
+  level: AuditLogLevel;
+}
+
+// Settings - Notification Preferences
+export interface DetectionAlertSettings {
+  highSeverity: { enabled: boolean; frequency: 'instant' | 'digest' };
+  mediumSeverity: { enabled: boolean; frequency: 'daily' | 'weekly' };
+  lowSeverity: { enabled: boolean; frequency: 'weekly' };
+  newPlatformDetection: boolean;
+  repeatOffenderAlert: boolean;
+}
+
+export interface CaseProgressAlertSettings {
+  takedownInitiated: boolean;
+  platformResponse: boolean;
+  caseResolved: boolean;
+  caseEscalated: boolean;
+  weeklyProgressSummary: boolean;
+}
+
+export interface ReportSettings {
+  weeklySummary: boolean;
+  monthlyAnalytics: boolean;
+  deliveryDay: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday';
+  deliveryTime: string;
+}
+
+export interface CommunicationPreferences {
+  emailEnabled: boolean;
+  inAppEnabled: boolean;
+  smsForCritical: boolean;
+  slackWebhookUrl: string;
+  marketingEmails: boolean;
+}
+
+export interface NotificationPreferences {
+  detectionAlerts: DetectionAlertSettings;
+  caseProgressAlerts: CaseProgressAlertSettings;
+  reportSettings: ReportSettings;
+  communicationPreferences: CommunicationPreferences;
+}
+
+// Settings - Plan & Usage
+export type PlanTier = 'free' | 'pro' | 'enterprise';
+
+export interface PlanUsage {
+  scansUsed: number;
+  scansLimit: number;
+  keywordsMonitored: number;
+  keywordsLimit: number;
+  assetsProtected: number;
+  assetsLimit: number;
+  teamSeats: number;
+  teamSeatsLimit: number;
+  apiCalls: number;
+  apiCallsLimit: number;
+  storageUsedGB: number;
+  storageLimitGB: number;
+}
+
+export interface PlanInfo {
+  tier: PlanTier;
+  price: number;
+  billingCycle: 'monthly' | 'annually';
+  renewalDate: string;
+}
+
+// Settings - Session Management
+export interface SessionInfo {
+  id: string;
+  device: string;
+  browser: string;
+  location: string;
+  ipAddress: string;
+  lastActive: string;
+  isCurrent: boolean;
+}
+
+// Settings - Team Member
+export type TeamRole = 'owner' | 'admin' | 'member' | 'viewer';
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: TeamRole;
+  avatarUrl?: string;
+  lastActive: string;
+}
+
+// Settings - Profile Extensions
+export type JobTitle =
+  | 'brand_manager'
+  | 'legal_counsel'
+  | 'ceo_founder'
+  | 'marketing_director'
+  | 'ip_specialist'
+  | 'other';
+
+export type BrandRole =
+  | 'primary_contact'
+  | 'team_member'
+  | 'external_counsel'
+  | 'auditor';
+
+export type DashboardView = 'overview' | 'recent_detections' | 'active_cases';
+
+export type DateFormatPreference = 'MM/DD/YYYY' | 'DD/MM/YYYY' | 'YYYY-MM-DD';

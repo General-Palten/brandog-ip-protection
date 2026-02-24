@@ -1,4 +1,4 @@
-import { InfringementItem, KeywordItem, PlatformType, InfringementStatus, ActivityLogItem, CaseUpdateType } from './types';
+import { InfringementItem, KeywordItem, PlatformType, InfringementStatus, ActivityLogItem, CaseUpdateType, AuditLogActionType, PlanTier, JobTitle, BrandRole, DashboardView, DateFormatPreference, AuditLogEntry } from './types';
 
 export const PLATFORM_CONFIG: Record<PlatformType, { label: string, color: string, category: 'social' | 'marketplace' }> = {
   'Meta Ads': { label: 'Meta Ads', color: 'blue', category: 'social' },
@@ -272,4 +272,198 @@ export const NAV_CATEGORIES = [
     { id: 'dashboard', label: 'Dashboard', icon: 'LayoutDashboard' },
     { id: 'report-gen', label: 'Report Generator', icon: 'FileBarChart' },
   ]}
+];
+
+// Settings - Plan Tiers
+export const PLAN_TIERS: Record<PlanTier, { name: string; price: number; features: Record<string, string | number | boolean> }> = {
+  free: {
+    name: 'Free',
+    price: 0,
+    features: {
+      monthlyScans: 100,
+      keywords: 5,
+      teamSeats: 1,
+      prioritySupport: false,
+      apiAccess: false,
+      customReports: false,
+    }
+  },
+  pro: {
+    name: 'Pro',
+    price: 99,
+    features: {
+      monthlyScans: 1000,
+      keywords: 50,
+      teamSeats: 10,
+      prioritySupport: 'Email',
+      apiAccess: true,
+      customReports: true,
+    }
+  },
+  enterprise: {
+    name: 'Enterprise',
+    price: 499,
+    features: {
+      monthlyScans: 'Unlimited',
+      keywords: 'Unlimited',
+      teamSeats: 'Unlimited',
+      prioritySupport: 'Dedicated',
+      apiAccess: true,
+      customReports: true,
+    }
+  }
+};
+
+// Settings - Log Action Types
+export const LOG_ACTION_TYPES: Record<AuditLogActionType, { label: string; icon: string; color: string }> = {
+  detection: { label: 'Detection', icon: 'AlertTriangle', color: 'orange' },
+  takedown: { label: 'Takedown', icon: 'Shield', color: 'blue' },
+  case_update: { label: 'Case Update', icon: 'FileText', color: 'purple' },
+  resolution: { label: 'Resolution', icon: 'CheckCircle', color: 'green' },
+  scan: { label: 'Scan', icon: 'Search', color: 'cyan' },
+  keyword: { label: 'Keyword', icon: 'Type', color: 'pink' },
+  user_action: { label: 'User Action', icon: 'User', color: 'gray' },
+  security: { label: 'Security', icon: 'Lock', color: 'red' },
+  report: { label: 'Report', icon: 'BarChart3', color: 'indigo' },
+};
+
+// Settings - Job Titles
+export const JOB_TITLES: Record<JobTitle, string> = {
+  brand_manager: 'Brand Manager',
+  legal_counsel: 'Legal Counsel',
+  ceo_founder: 'CEO/Founder',
+  marketing_director: 'Marketing Director',
+  ip_specialist: 'IP Specialist',
+  other: 'Other',
+};
+
+// Settings - Brand Roles
+export const BRAND_ROLES: Record<BrandRole, string> = {
+  primary_contact: 'Primary Contact',
+  team_member: 'Team Member',
+  external_counsel: 'External Counsel',
+  auditor: 'Auditor',
+};
+
+// Settings - Dashboard Views
+export const DASHBOARD_VIEWS: Record<DashboardView, string> = {
+  overview: 'Overview',
+  recent_detections: 'Recent Detections',
+  active_cases: 'Active Cases',
+};
+
+// Settings - Date Formats
+export const DATE_FORMATS: Record<DateFormatPreference, string> = {
+  'MM/DD/YYYY': 'MM/DD/YYYY (US)',
+  'DD/MM/YYYY': 'DD/MM/YYYY (EU)',
+  'YYYY-MM-DD': 'YYYY-MM-DD (ISO)',
+};
+
+// Settings - Common Timezones
+export const TIMEZONES = [
+  { value: 'America/New_York', label: 'Eastern Time (ET)' },
+  { value: 'America/Chicago', label: 'Central Time (CT)' },
+  { value: 'America/Denver', label: 'Mountain Time (MT)' },
+  { value: 'America/Los_Angeles', label: 'Pacific Time (PT)' },
+  { value: 'Europe/London', label: 'London (GMT/BST)' },
+  { value: 'Europe/Paris', label: 'Paris (CET/CEST)' },
+  { value: 'Europe/Berlin', label: 'Berlin (CET/CEST)' },
+  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
+  { value: 'Asia/Shanghai', label: 'Shanghai (CST)' },
+  { value: 'Asia/Singapore', label: 'Singapore (SGT)' },
+  { value: 'Australia/Sydney', label: 'Sydney (AEST/AEDT)' },
+];
+
+// Settings - Mock Audit Logs
+export const MOCK_AUDIT_LOGS: AuditLogEntry[] = [
+  {
+    id: '1',
+    actionType: 'detection',
+    title: 'New infringement detected',
+    target: 'High similarity match on AliExpress - Fake brand sneakers',
+    user: 'System',
+    timestamp: new Date().toISOString(),
+    level: 'warning',
+  },
+  {
+    id: '2',
+    actionType: 'takedown',
+    title: 'Takedown request submitted',
+    target: 'Amazon listing #B08XYZ123 - KnockOff King seller',
+    user: 'Viktor',
+    timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+    level: 'info',
+  },
+  {
+    id: '3',
+    actionType: 'resolution',
+    title: 'Content removed',
+    target: 'Instagram post by @cheap_textures_official',
+    user: 'System',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
+    level: 'success',
+  },
+  {
+    id: '4',
+    actionType: 'scan',
+    title: 'Asset scan completed',
+    target: '45 assets scanned, 3 potential matches found',
+    user: 'System',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
+    level: 'info',
+  },
+  {
+    id: '5',
+    actionType: 'keyword',
+    title: 'Keyword added',
+    target: '"Super Max" added to watch list',
+    user: 'Viktor',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+    level: 'info',
+  },
+  {
+    id: '6',
+    actionType: 'security',
+    title: '2FA enabled',
+    target: 'Two-factor authentication activated via authenticator app',
+    user: 'Viktor',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
+    level: 'success',
+  },
+  {
+    id: '7',
+    actionType: 'case_update',
+    title: 'Case escalated',
+    target: 'Shopify case #3 escalated to priority handling',
+    user: 'Legal Team',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 72).toISOString(),
+    level: 'warning',
+  },
+  {
+    id: '8',
+    actionType: 'report',
+    title: 'Weekly report generated',
+    target: 'Q4 Week 3 Brand Protection Summary',
+    user: 'System',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 96).toISOString(),
+    level: 'info',
+  },
+  {
+    id: '9',
+    actionType: 'user_action',
+    title: 'Settings updated',
+    target: 'Notification preferences modified',
+    user: 'Viktor',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 120).toISOString(),
+    level: 'info',
+  },
+  {
+    id: '10',
+    actionType: 'detection',
+    title: 'Repeat offender alert',
+    target: 'Seller "Shenzhen Dropship Co." detected again on new listing',
+    user: 'System',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 144).toISOString(),
+    level: 'danger',
+  },
 ];

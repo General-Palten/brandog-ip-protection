@@ -4,22 +4,66 @@ import Button from '../ui/Button';
 import { useDashboard } from '../../context/DashboardContext';
 import { useAuth } from '../../context/AuthContext';
 import {
-  User, Bell, Shield, Key, CreditCard, Mail, Globe, Moon,
-  Smartphone, LogOut, Camera, Check, Plug, Eye, EyeOff, Loader2, CheckCircle, XCircle, Database, Trash2
+  User, Bell, Shield, CreditCard, Globe, Moon,
+  Smartphone, LogOut, Camera, Loader2, CheckCircle,
+  Crown, BarChart3, History, Download, Filter, Monitor, Lock,
+  Users, ChevronDown, ChevronUp, Search, Calendar, AlertTriangle,
+  FileText, Type, Zap, X, Phone, Mail
 } from 'lucide-react';
 import {
-  getVisionConfig,
-  saveVisionConfig,
-  saveVisionProvider,
-  isServerManagedSerpApiEnabled,
-  type ImageSearchProvider
-} from '../../lib/api-config';
-import { testVisionApiConnection } from '../../lib/vision-api';
-import { seedDatabase, clearBrandData } from '../../lib/seed-data';
+  JOB_TITLES, BRAND_ROLES, DASHBOARD_VIEWS, DATE_FORMATS, TIMEZONES,
+  PLAN_TIERS, LOG_ACTION_TYPES, MOCK_AUDIT_LOGS
+} from '../../constants';
+import {
+  JobTitle, BrandRole, DashboardView, DateFormatPreference,
+  PlanTier, PlanUsage, SessionInfo, TeamMember, AuditLogEntry, AuditLogActionType, AuditLogLevel
+} from '../../types';
 
 interface SettingsProps {
   initialSection?: string;
 }
+
+// Helper component for usage progress bars
+const UsageBar: React.FC<{ label: string; used: number; limit: number | string; unit?: string }> = ({ label, used, limit, unit = '' }) => {
+  const isUnlimited = limit === 'Unlimited' || limit === Infinity;
+  const percentage = isUnlimited ? 0 : (used / (limit as number)) * 100;
+  const colorClass = percentage >= 90 ? 'bg-red-500' : percentage >= 70 ? 'bg-yellow-500' : 'bg-green-500';
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between text-xs">
+        <span className="text-secondary">{label}</span>
+        <span className="text-primary font-mono">
+          {used.toLocaleString()}{unit} / {isUnlimited ? '∞' : `${(limit as number).toLocaleString()}${unit}`}
+        </span>
+      </div>
+      <div className="h-2 bg-surface border border-border rounded-full overflow-hidden">
+        <div
+          className={`h-full ${colorClass} transition-all`}
+          style={{ width: isUnlimited ? '0%' : `${Math.min(percentage, 100)}%` }}
+        />
+      </div>
+    </div>
+  );
+};
+
+// Toggle Switch component
+const Toggle: React.FC<{ enabled: boolean; onChange: (val: boolean) => void; size?: 'sm' | 'md' }> = ({ enabled, onChange, size = 'md' }) => {
+  const sizeClasses = size === 'sm'
+    ? 'h-5 w-9'
+    : 'h-6 w-11';
+  const dotSize = size === 'sm' ? 'h-3 w-3' : 'h-4 w-4';
+  const translateX = size === 'sm' ? 'translate-x-5' : 'translate-x-6';
+
+  return (
+    <button
+      onClick={() => onChange(!enabled)}
+      className={`relative inline-flex ${sizeClasses} items-center rounded-full transition-colors ${enabled ? 'bg-primary' : 'bg-border'}`}
+    >
+      <span className={`inline-block ${dotSize} transform rounded-full bg-inverse transition-transform ${enabled ? translateX : 'translate-x-1'}`} />
+    </button>
+  );
+};
 
 const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
   const { theme, toggleTheme, addNotification } = useDashboard();
@@ -30,15 +74,82 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [bio, setBio] = useState('');
+  const [jobTitle, setJobTitle] = useState<JobTitle>('brand_manager');
+  const [timezone, setTimezone] = useState('America/New_York');
+  const [brandRole, setBrandRole] = useState<BrandRole>('primary_contact');
+  const [notificationEmail, setNotificationEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [defaultDashboardView, setDefaultDashboardView] = useState<DashboardView>('overview');
+  const [dateFormat, setDateFormat] = useState<DateFormatPreference>('MM/DD/YYYY');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  // API Configuration state
-  const [searchProvider, setSearchProvider] = useState<ImageSearchProvider>('google_vision');
-  const [visionApiKey, setVisionApiKey] = useState('');
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [isTestingConnection, setIsTestingConnection] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const hasServerManagedSerpApi = isServerManagedSerpApiEnabled();
+  // Notification settings state
+  const [highSeverityEnabled, setHighSeverityEnabled] = useState(true);
+  const [highSeverityFreq, setHighSeverityFreq] = useState<'instant' | 'digest'>('instant');
+  const [mediumSeverityEnabled, setMediumSeverityEnabled] = useState(true);
+  const [mediumSeverityFreq, setMediumSeverityFreq] = useState<'daily' | 'weekly'>('daily');
+  const [lowSeverityEnabled, setLowSeverityEnabled] = useState(false);
+  const [newPlatformDetection, setNewPlatformDetection] = useState(true);
+  const [repeatOffenderAlert, setRepeatOffenderAlert] = useState(true);
+  const [takedownInitiated, setTakedownInitiated] = useState(true);
+  const [platformResponse, setPlatformResponse] = useState(true);
+  const [caseResolved, setCaseResolved] = useState(true);
+  const [caseEscalated, setCaseEscalated] = useState(true);
+  const [weeklyProgressSummary, setWeeklyProgressSummary] = useState(true);
+  const [weeklySummaryReport, setWeeklySummaryReport] = useState(true);
+  const [monthlyAnalyticsReport, setMonthlyAnalyticsReport] = useState(true);
+  const [reportDeliveryDay, setReportDeliveryDay] = useState('monday');
+  const [emailEnabled, setEmailEnabled] = useState(true);
+  const [inAppEnabled, setInAppEnabled] = useState(true);
+  const [smsForCritical, setSmsForCritical] = useState(false);
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState('');
+  const [marketingEmails, setMarketingEmails] = useState(false);
+
+  // Security state
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(true);
+  const [requireApprovalForTakedowns, setRequireApprovalForTakedowns] = useState(false);
+  const [auditLogAccess, setAuditLogAccess] = useState(true);
+  const [accountLockdown, setAccountLockdown] = useState(false);
+
+  // Plan state
+  const [currentPlan] = useState<PlanTier>('pro');
+  const [planComparisonOpen, setPlanComparisonOpen] = useState(false);
+  const [planUsage] = useState<PlanUsage>({
+    scansUsed: 847,
+    scansLimit: 1000,
+    keywordsMonitored: 12,
+    keywordsLimit: 50,
+    assetsProtected: 45,
+    assetsLimit: 100,
+    teamSeats: 4,
+    teamSeatsLimit: 10,
+    apiCalls: 2500,
+    apiCallsLimit: 5000,
+    storageUsedGB: 2.4,
+    storageLimitGB: 10,
+  });
+
+  // Logs state
+  const [logSearchQuery, setLogSearchQuery] = useState('');
+  const [logDateRange, setLogDateRange] = useState('7');
+  const [logActionTypeFilter, setLogActionTypeFilter] = useState<AuditLogActionType[]>([]);
+  const [logLevelFilter, setLogLevelFilter] = useState<AuditLogLevel[]>(['info', 'warning', 'success', 'danger']);
+  const [exportFormat, setExportFormat] = useState('csv');
+
+  // Mock sessions
+  const [sessions] = useState<SessionInfo[]>([
+    { id: '1', device: 'MacBook Pro', browser: 'Chrome 120', location: 'New York, US', ipAddress: '192.168.1.1', lastActive: 'Now', isCurrent: true },
+    { id: '2', device: 'iPhone 15', browser: 'Safari Mobile', location: 'New York, US', ipAddress: '192.168.1.2', lastActive: '2 hours ago', isCurrent: false },
+    { id: '3', device: 'Windows PC', browser: 'Firefox 121', location: 'London, UK', ipAddress: '10.0.0.5', lastActive: '1 day ago', isCurrent: false },
+  ]);
+
+  // Mock team members
+  const [teamMembers] = useState<TeamMember[]>([
+    { id: '1', name: 'Viktor S.', email: 'viktor@company.com', role: 'owner', lastActive: 'Now' },
+    { id: '2', name: 'Sarah J.', email: 'sarah@company.com', role: 'admin', lastActive: '1 hour ago' },
+    { id: '3', name: 'Mike R.', email: 'mike@company.com', role: 'member', lastActive: '3 days ago' },
+    { id: '4', name: 'Emma L.', email: 'emma@legal.com', role: 'viewer', lastActive: '1 week ago' },
+  ]);
 
   useEffect(() => {
     setActiveSection(initialSection);
@@ -74,126 +185,53 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
     }
   };
 
-  // Load saved API key on mount
-  useEffect(() => {
-    const config = getVisionConfig();
-    setSearchProvider(config.provider);
-    const activeKey = config.provider === 'serpapi_lens'
-      ? (hasServerManagedSerpApi ? '' : config.serpApiKey)
-      : config.googleVisionApiKey || config.apiKey;
-    setVisionApiKey(activeKey || '');
-    setConnectionStatus('idle');
-  }, [hasServerManagedSerpApi]);
-
-  const handleSaveApiKey = () => {
-    if (searchProvider === 'serpapi_lens' && hasServerManagedSerpApi && !visionApiKey.trim()) {
-      saveVisionConfig('', 'serpapi_lens');
-      addNotification('success', 'SerpApi key is managed server-side and stored outside the browser.');
-      setConnectionStatus('idle');
-      return;
-    }
-
-    saveVisionConfig(visionApiKey, searchProvider);
-    addNotification(
-      'success',
-      searchProvider === 'serpapi_lens'
-        ? 'SerpApi key saved successfully'
-        : 'Google Vision key saved successfully'
-    );
-    setConnectionStatus('idle');
+  const handleRevokeSession = (sessionId: string) => {
+    addNotification('success', 'Session revoked successfully');
   };
 
-  const handleProviderChange = (provider: ImageSearchProvider) => {
-    setSearchProvider(provider);
-    saveVisionProvider(provider);
-    const config = getVisionConfig();
-    setVisionApiKey(
-      provider === 'serpapi_lens'
-        ? (hasServerManagedSerpApi ? '' : config.serpApiKey)
-        : config.googleVisionApiKey
-    );
-    setConnectionStatus('idle');
+  const handleRevokeAllSessions = () => {
+    addNotification('success', 'All other sessions have been revoked');
   };
 
-  const isSerpApiProvider = searchProvider === 'serpapi_lens';
-  const isServerManagedSerpApi = isSerpApiProvider && hasServerManagedSerpApi;
+  const handleExportLogs = () => {
+    addNotification('success', `Exporting logs as ${exportFormat.toUpperCase()}...`);
+  };
 
-  const handleTestConnection = async () => {
-    if (!visionApiKey && !isServerManagedSerpApi) {
-      addNotification('error', 'Please enter an API key first');
-      return;
+  // Filter logs based on current filters
+  const filteredLogs = MOCK_AUDIT_LOGS.filter(log => {
+    if (logSearchQuery && !log.title.toLowerCase().includes(logSearchQuery.toLowerCase()) && !log.target.toLowerCase().includes(logSearchQuery.toLowerCase())) {
+      return false;
     }
-
-    setIsTestingConnection(true);
-    setConnectionStatus('idle');
-
-    // Save temporarily for testing if the key is client-managed.
-    if (!isServerManagedSerpApi || visionApiKey.trim()) {
-      saveVisionConfig(visionApiKey, searchProvider);
-    } else {
-      saveVisionConfig('', 'serpapi_lens');
+    if (logActionTypeFilter.length > 0 && !logActionTypeFilter.includes(log.actionType)) {
+      return false;
     }
+    if (!logLevelFilter.includes(log.level)) {
+      return false;
+    }
+    return true;
+  });
 
-    try {
-      const success = await testVisionApiConnection();
-      if (success) {
-        setConnectionStatus('success');
-        addNotification('success', 'Connection successful! API key is valid.');
-      } else {
-        setConnectionStatus('error');
-        addNotification('error', 'Connection failed. Please check your API key.');
-      }
-    } catch (error) {
-      setConnectionStatus('error');
-      addNotification('error', 'Connection failed. Please check your API key.');
-    } finally {
-      setIsTestingConnection(false);
+  const getLogLevelColor = (level: AuditLogLevel) => {
+    switch (level) {
+      case 'success': return 'text-green-500 bg-green-500/10 border-green-500/20';
+      case 'warning': return 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20';
+      case 'danger': return 'text-red-500 bg-red-500/10 border-red-500/20';
+      default: return 'text-blue-500 bg-blue-500/10 border-blue-500/20';
     }
   };
 
-  // Developer tools state
-  const [isSeeding, setIsSeeding] = useState(false);
-  const [isClearing, setIsClearing] = useState(false);
-
-  const handleSeedData = async () => {
-    if (!user || !currentBrand) {
-      addNotification('error', 'No user or brand found. Please sign in first.');
-      return;
-    }
-
-    setIsSeeding(true);
-    try {
-      const result = await seedDatabase(user.id, currentBrand.id);
-      if (result.success) {
-        addNotification('success', 'Demo data seeded successfully! Refresh the page to see changes.');
-      } else {
-        addNotification('error', `Failed to seed data: ${result.error}`);
-      }
-    } catch (error) {
-      addNotification('error', 'Failed to seed data');
-    } finally {
-      setIsSeeding(false);
-    }
-  };
-
-  const handleClearData = async () => {
-    if (!currentBrand) {
-      addNotification('error', 'No brand found.');
-      return;
-    }
-
-    setIsClearing(true);
-    try {
-      const result = await clearBrandData(currentBrand.id);
-      if (result.success) {
-        addNotification('success', 'Brand data cleared. Refresh to see changes.');
-      } else {
-        addNotification('error', 'Failed to clear data');
-      }
-    } catch (error) {
-      addNotification('error', 'Failed to clear data');
-    } finally {
-      setIsClearing(false);
+  const getActionIcon = (actionType: AuditLogActionType) => {
+    switch (actionType) {
+      case 'detection': return AlertTriangle;
+      case 'takedown': return Shield;
+      case 'case_update': return FileText;
+      case 'resolution': return CheckCircle;
+      case 'scan': return Search;
+      case 'keyword': return Type;
+      case 'user_action': return User;
+      case 'security': return Lock;
+      case 'report': return BarChart3;
+      default: return FileText;
     }
   };
 
@@ -201,9 +239,9 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },
-    { id: 'integrations', label: 'Integrations', icon: Plug },
+    { id: 'plan', label: 'Plan', icon: Crown },
     { id: 'billing', label: 'Billing', icon: CreditCard },
-    { id: 'developer', label: 'Developer', icon: Database },
+    { id: 'logs', label: 'Logs', icon: History },
   ];
 
   return (
@@ -224,8 +262,8 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                         key={section.id}
                         onClick={() => setActiveSection(section.id)}
                         className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors border border-transparent
-                        ${activeSection === section.id 
-                            ? 'bg-surface text-primary border-border' 
+                        ${activeSection === section.id
+                            ? 'bg-surface text-primary border-border'
                             : 'text-secondary hover:text-primary hover:bg-surface/50'}`}
                     >
                         <section.icon size={18} />
@@ -233,7 +271,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                     </button>
                 ))}
             </div>
-            
+
             <div className="mt-auto pt-4">
                 <div className="pt-4 border-t border-border">
                     <button className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors">
@@ -246,11 +284,11 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
 
         {/* Content Area */}
         <div className="flex-1 space-y-6">
-            
+
             {/* PROFILE SECTION */}
             {activeSection === 'profile' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                    <BentoCard title="Public Profile">
+                    <BentoCard title="Account Profile">
                         <div className="flex flex-col md:flex-row gap-8 items-start mt-4">
                             <div className="relative group cursor-pointer">
                                 <div className="w-24 h-24 bg-surface border border-border rounded-full overflow-hidden">
@@ -292,6 +330,32 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                       className="w-full px-3 py-2 bg-surface border border-border rounded-none text-sm text-secondary cursor-not-allowed"
                                     />
                                 </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Job Title</label>
+                                        <select
+                                          value={jobTitle}
+                                          onChange={(e) => setJobTitle(e.target.value as JobTitle)}
+                                          className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                        >
+                                          {Object.entries(JOB_TITLES).map(([key, label]) => (
+                                            <option key={key} value={key}>{label}</option>
+                                          ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Timezone</label>
+                                        <select
+                                          value={timezone}
+                                          onChange={(e) => setTimezone(e.target.value)}
+                                          className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                        >
+                                          {TIMEZONES.map((tz) => (
+                                            <option key={tz.value} value={tz.value}>{tz.label}</option>
+                                          ))}
+                                        </select>
+                                    </div>
+                                </div>
                                 <div>
                                     <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Bio</label>
                                     <textarea
@@ -302,21 +366,56 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                       className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none resize-none"
                                     />
                                 </div>
-                                <div className="flex justify-end">
-                                    <Button
-                                      size="sm"
-                                      onClick={handleSaveProfile}
-                                      disabled={isSavingProfile}
-                                    >
-                                      {isSavingProfile ? (
-                                        <>
-                                          <Loader2 size={14} className="animate-spin mr-1" />
-                                          Saving...
-                                        </>
-                                      ) : (
-                                        'Save Changes'
-                                      )}
-                                    </Button>
+                            </div>
+                        </div>
+                    </BentoCard>
+
+                    <BentoCard title="Brand Context">
+                        <div className="mt-4 space-y-4">
+                            <div>
+                                <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-3">Primary Brand Role</label>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    {Object.entries(BRAND_ROLES).map(([key, label]) => (
+                                        <button
+                                            key={key}
+                                            onClick={() => setBrandRole(key as BrandRole)}
+                                            className={`px-3 py-2 text-xs border transition-colors ${
+                                                brandRole === key
+                                                    ? 'bg-primary text-inverse border-primary'
+                                                    : 'bg-background text-secondary border-border hover:text-primary'
+                                            }`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">
+                                        <Mail size={12} className="inline mr-1" />
+                                        Secondary Email for Alerts
+                                    </label>
+                                    <input
+                                      type="email"
+                                      value={notificationEmail}
+                                      onChange={(e) => setNotificationEmail(e.target.value)}
+                                      placeholder="alerts@company.com"
+                                      className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">
+                                        <Phone size={12} className="inline mr-1" />
+                                        Phone for SMS Alerts (Optional)
+                                    </label>
+                                    <input
+                                      type="tel"
+                                      value={phoneNumber}
+                                      onChange={(e) => setPhoneNumber(e.target.value)}
+                                      placeholder="+1 (555) 000-0000"
+                                      className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                    />
                                 </div>
                             </div>
                         </div>
@@ -340,7 +439,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                     <option>German</option>
                                 </select>
                             </div>
-                            <div className="flex items-center justify-between py-3">
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 bg-surface border border-border text-primary">
                                         <Moon size={18} />
@@ -350,13 +449,64 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                         <p className="text-xs text-secondary">Toggle dark mode</p>
                                     </div>
                                 </div>
-                                <button 
-                                    onClick={toggleTheme}
-                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${theme === 'dark' ? 'bg-primary' : 'bg-border'}`}
-                                >
-                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-inverse transition-transform ${theme === 'dark' ? 'translate-x-6' : 'translate-x-1'}`} />
-                                </button>
+                                <Toggle enabled={theme === 'dark'} onChange={toggleTheme} />
                             </div>
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-surface border border-border text-primary">
+                                        <BarChart3 size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-medium text-primary">Default Dashboard View</p>
+                                        <p className="text-xs text-secondary">What to show when you open the app</p>
+                                    </div>
+                                </div>
+                                <select
+                                    value={defaultDashboardView}
+                                    onChange={(e) => setDefaultDashboardView(e.target.value as DashboardView)}
+                                    className="bg-background border border-border text-sm px-3 py-1.5 outline-none"
+                                >
+                                    {Object.entries(DASHBOARD_VIEWS).map(([key, label]) => (
+                                        <option key={key} value={key}>{label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex items-center justify-between py-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-surface border border-border text-primary">
+                                        <Calendar size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-medium text-primary">Date Format</p>
+                                        <p className="text-xs text-secondary">How dates are displayed</p>
+                                    </div>
+                                </div>
+                                <select
+                                    value={dateFormat}
+                                    onChange={(e) => setDateFormat(e.target.value as DateFormatPreference)}
+                                    className="bg-background border border-border text-sm px-3 py-1.5 outline-none"
+                                >
+                                    {Object.entries(DATE_FORMATS).map(([key, label]) => (
+                                        <option key={key} value={key}>{label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="mt-6 flex justify-end">
+                            <Button
+                              size="sm"
+                              onClick={handleSaveProfile}
+                              disabled={isSavingProfile}
+                            >
+                              {isSavingProfile ? (
+                                <>
+                                  <Loader2 size={14} className="animate-spin mr-1" />
+                                  Saving...
+                                </>
+                              ) : (
+                                'Save Changes'
+                              )}
+                            </Button>
                         </div>
                     </BentoCard>
                 </div>
@@ -365,24 +515,179 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
             {/* NOTIFICATIONS SECTION */}
             {activeSection === 'notifications' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                    <BentoCard title="Email Alerts">
-                        <div className="mt-4 space-y-2">
-                             {[
-                                 { label: 'Weekly Summary Report', desc: 'Get a digest of all infringements every Monday', checked: true },
-                                 { label: 'High Risk Alerts', desc: 'Immediate notification for high-value copycats', checked: true },
-                                 { label: 'Takedown Updates', desc: 'Status changes on your submitted reports', checked: false },
-                                 { label: 'Marketing', desc: 'News about product features and updates', checked: false }
-                             ].map((item, i) => (
-                                 <div key={i} className="flex items-start gap-3 py-3 border-b border-border last:border-0 border-dashed">
-                                     <div className="pt-0.5">
-                                         <input type="checkbox" defaultChecked={item.checked} className="w-4 h-4 accent-primary bg-background border-border rounded-none cursor-pointer" />
-                                     </div>
-                                     <div>
-                                         <p className="text-sm font-medium text-primary">{item.label}</p>
-                                         <p className="text-xs text-secondary">{item.desc}</p>
-                                     </div>
-                                 </div>
-                             ))}
+                    <BentoCard title="Detection Alerts">
+                        <div className="mt-4 space-y-3">
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-primary">High Severity (90%+ match)</p>
+                                    <p className="text-xs text-secondary">Critical infringements requiring immediate attention</p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <select
+                                        value={highSeverityFreq}
+                                        onChange={(e) => setHighSeverityFreq(e.target.value as 'instant' | 'digest')}
+                                        className="bg-background border border-border text-xs px-2 py-1 outline-none"
+                                        disabled={!highSeverityEnabled}
+                                    >
+                                        <option value="instant">Instant</option>
+                                        <option value="digest">Digest</option>
+                                    </select>
+                                    <Toggle enabled={highSeverityEnabled} onChange={setHighSeverityEnabled} size="sm" />
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-primary">Medium Severity (70-89%)</p>
+                                    <p className="text-xs text-secondary">Potential infringements worth reviewing</p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <select
+                                        value={mediumSeverityFreq}
+                                        onChange={(e) => setMediumSeverityFreq(e.target.value as 'daily' | 'weekly')}
+                                        className="bg-background border border-border text-xs px-2 py-1 outline-none"
+                                        disabled={!mediumSeverityEnabled}
+                                    >
+                                        <option value="daily">Daily</option>
+                                        <option value="weekly">Weekly</option>
+                                    </select>
+                                    <Toggle enabled={mediumSeverityEnabled} onChange={setMediumSeverityEnabled} size="sm" />
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-primary">Low Severity (&lt;70%)</p>
+                                    <p className="text-xs text-secondary">Possible matches to keep an eye on</p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-xs text-secondary">Weekly</span>
+                                    <Toggle enabled={lowSeverityEnabled} onChange={setLowSeverityEnabled} size="sm" />
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-primary">New Platform Detection</p>
+                                    <p className="text-xs text-secondary">When your content appears on a new platform</p>
+                                </div>
+                                <Toggle enabled={newPlatformDetection} onChange={setNewPlatformDetection} size="sm" />
+                            </div>
+                            <div className="flex items-center justify-between py-3">
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-primary">Repeat Offender Alert</p>
+                                    <p className="text-xs text-secondary">When a previously flagged seller reappears</p>
+                                </div>
+                                <Toggle enabled={repeatOffenderAlert} onChange={setRepeatOffenderAlert} size="sm" />
+                            </div>
+                        </div>
+                    </BentoCard>
+
+                    <BentoCard title="Case Progress Alerts">
+                        <div className="mt-4 space-y-3">
+                            {[
+                                { label: 'Takedown Initiated', desc: 'When a takedown request is submitted', state: takedownInitiated, setter: setTakedownInitiated },
+                                { label: 'Platform Response', desc: 'When a platform responds to your request', state: platformResponse, setter: setPlatformResponse },
+                                { label: 'Case Resolved', desc: 'When content is successfully removed', state: caseResolved, setter: setCaseResolved },
+                                { label: 'Case Escalated', desc: 'When a case requires escalation', state: caseEscalated, setter: setCaseEscalated },
+                                { label: 'Weekly Progress Summary', desc: 'Overview of all case activity', state: weeklyProgressSummary, setter: setWeeklyProgressSummary },
+                            ].map((item, i) => (
+                                <div key={i} className={`flex items-center justify-between py-3 ${i < 4 ? 'border-b border-border border-dashed' : ''}`}>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-medium text-primary">{item.label}</p>
+                                        <p className="text-xs text-secondary">{item.desc}</p>
+                                    </div>
+                                    <Toggle enabled={item.state} onChange={item.setter} size="sm" />
+                                </div>
+                            ))}
+                        </div>
+                    </BentoCard>
+
+                    <BentoCard title="Report Settings">
+                        <div className="mt-4 space-y-4">
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-primary">Weekly Summary Report</p>
+                                    <p className="text-xs text-secondary">Comprehensive weekly digest of brand protection activity</p>
+                                </div>
+                                <Toggle enabled={weeklySummaryReport} onChange={setWeeklySummaryReport} size="sm" />
+                            </div>
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-primary">Monthly Analytics Report</p>
+                                    <p className="text-xs text-secondary">Detailed monthly analytics and trends</p>
+                                </div>
+                                <Toggle enabled={monthlyAnalyticsReport} onChange={setMonthlyAnalyticsReport} size="sm" />
+                            </div>
+                            <div className="flex items-center justify-between py-3">
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-primary">Delivery Preferences</p>
+                                    <p className="text-xs text-secondary">When to receive your reports</p>
+                                </div>
+                                <select
+                                    value={reportDeliveryDay}
+                                    onChange={(e) => setReportDeliveryDay(e.target.value)}
+                                    className="bg-background border border-border text-xs px-2 py-1 outline-none"
+                                >
+                                    <option value="monday">Monday 9:00 AM</option>
+                                    <option value="tuesday">Tuesday 9:00 AM</option>
+                                    <option value="wednesday">Wednesday 9:00 AM</option>
+                                    <option value="thursday">Thursday 9:00 AM</option>
+                                    <option value="friday">Friday 9:00 AM</option>
+                                </select>
+                            </div>
+                        </div>
+                    </BentoCard>
+
+                    <BentoCard title="Communication Preferences">
+                        <div className="mt-4 space-y-4">
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
+                                <div className="flex items-center gap-3">
+                                    <Mail size={18} className="text-secondary" />
+                                    <div>
+                                        <p className="text-sm font-medium text-primary">Email Notifications</p>
+                                        <p className="text-xs text-secondary">Master toggle for all email alerts</p>
+                                    </div>
+                                </div>
+                                <Toggle enabled={emailEnabled} onChange={setEmailEnabled} size="sm" />
+                            </div>
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
+                                <div className="flex items-center gap-3">
+                                    <Bell size={18} className="text-secondary" />
+                                    <div>
+                                        <p className="text-sm font-medium text-primary">In-App Notifications</p>
+                                        <p className="text-xs text-secondary">Show notifications within the dashboard</p>
+                                    </div>
+                                </div>
+                                <Toggle enabled={inAppEnabled} onChange={setInAppEnabled} size="sm" />
+                            </div>
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
+                                <div className="flex items-center gap-3">
+                                    <Smartphone size={18} className="text-secondary" />
+                                    <div>
+                                        <p className="text-sm font-medium text-primary">SMS for Critical Alerts</p>
+                                        <p className="text-xs text-secondary">Text messages for high-priority issues only</p>
+                                    </div>
+                                </div>
+                                <Toggle enabled={smsForCritical} onChange={setSmsForCritical} size="sm" />
+                            </div>
+                            <div className="py-3 border-b border-border border-dashed">
+                                <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Slack Webhook URL</label>
+                                <input
+                                    type="url"
+                                    value={slackWebhookUrl}
+                                    onChange={(e) => setSlackWebhookUrl(e.target.value)}
+                                    placeholder="https://hooks.slack.com/services/..."
+                                    className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none font-mono"
+                                />
+                            </div>
+                            <div className="flex items-center justify-between py-3">
+                                <div className="flex items-center gap-3">
+                                    <Zap size={18} className="text-secondary" />
+                                    <div>
+                                        <p className="text-sm font-medium text-primary">Marketing Emails</p>
+                                        <p className="text-xs text-secondary">Product updates and feature announcements</p>
+                                    </div>
+                                </div>
+                                <Toggle enabled={marketingEmails} onChange={setMarketingEmails} size="sm" />
+                            </div>
                         </div>
                         <div className="mt-4 flex justify-end">
                             <Button size="sm" variant="secondary">Update Preferences</Button>
@@ -394,191 +699,283 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
             {/* SECURITY SECTION */}
             {activeSection === 'security' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                    <BentoCard title="API Access">
+                    <BentoCard title="Two-Factor Authentication">
                         <div className="mt-4">
-                            <p className="text-sm text-secondary mb-4">Use this key to authenticate requests to the Brandog Platform API.</p>
-                            <div className="flex gap-2">
-                                <div className="flex-1 bg-surface border border-border px-4 py-2.5 font-mono text-sm text-primary flex items-center justify-between">
-                                    <span>pk_live_51Msz...x82z9</span>
-                                    <button className="text-xs text-secondary hover:text-primary">Copy</button>
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-10 h-10 flex items-center justify-center rounded-none border ${twoFactorEnabled ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-surface text-secondary border-border'}`}>
+                                        <Smartphone size={20} />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-medium text-primary">2FA is {twoFactorEnabled ? 'Enabled' : 'Disabled'}</p>
+                                        <p className="text-xs text-secondary">
+                                            {twoFactorEnabled ? 'Your account is secured with an authenticator app.' : 'Add an extra layer of security to your account.'}
+                                        </p>
+                                    </div>
                                 </div>
-                                <Button variant="secondary" icon={Key}>Roll Key</Button>
+                            </div>
+                            <div className="flex gap-2">
+                                <Button variant="outline" size="sm">Configure Authenticator</Button>
+                                <Button variant="outline" size="sm">Generate Backup Codes</Button>
+                            </div>
+                            <div className="mt-4 pt-4 border-t border-border">
+                                <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">SMS Backup Phone (Optional)</label>
+                                <input
+                                    type="tel"
+                                    placeholder="+1 (555) 000-0000"
+                                    className="w-full md:w-1/2 px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                />
                             </div>
                         </div>
                     </BentoCard>
-                    
-                    <BentoCard title="Two-Factor Authentication">
-                        <div className="mt-4 flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 bg-green-500/10 text-green-500 flex items-center justify-center rounded-none border border-green-500/20">
-                                    <Smartphone size={20} />
-                                </div>
+
+                    <BentoCard title="Session Management">
+                        <div className="mt-4">
+                            <div className="flex justify-between items-center mb-4">
+                                <p className="text-sm text-secondary">Active sessions across your devices</p>
+                                <Button variant="outline" size="sm" onClick={handleRevokeAllSessions}>
+                                    Sign Out All Other Sessions
+                                </Button>
+                            </div>
+                            <div className="space-y-3">
+                                {sessions.map((session) => (
+                                    <div key={session.id} className="flex items-center justify-between p-3 bg-surface border border-border">
+                                        <div className="flex items-center gap-3">
+                                            <Monitor size={18} className="text-secondary" />
+                                            <div>
+                                                <p className="text-sm font-medium text-primary">
+                                                    {session.device} - {session.browser}
+                                                    {session.isCurrent && <span className="ml-2 text-xs text-green-500">(Current)</span>}
+                                                </p>
+                                                <p className="text-xs text-secondary">
+                                                    {session.location} • {session.ipAddress} • {session.lastActive}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {!session.isCurrent && (
+                                            <Button variant="ghost" size="sm" onClick={() => handleRevokeSession(session.id)}>
+                                                Revoke
+                                            </Button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </BentoCard>
+
+                    <BentoCard title="Password & Account">
+                        <div className="mt-4 space-y-4">
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
                                 <div>
-                                    <p className="text-sm font-medium text-primary">2FA is Enabled</p>
-                                    <p className="text-xs text-secondary">Your account is secured with an authenticator app.</p>
+                                    <p className="text-sm font-medium text-primary">Password</p>
+                                    <p className="text-xs text-secondary">Last changed 30 days ago</p>
+                                </div>
+                                <Button variant="outline" size="sm">Change Password</Button>
+                            </div>
+                            <div className="flex items-center justify-between py-3 border-b border-border border-dashed">
+                                <div>
+                                    <p className="text-sm font-medium text-primary">Login History</p>
+                                    <p className="text-xs text-secondary">View recent login attempts</p>
+                                </div>
+                                <Button variant="ghost" size="sm">View History</Button>
+                            </div>
+                            <div className="flex items-center justify-between py-3">
+                                <div>
+                                    <p className="text-sm font-medium text-primary">Account Lockdown Mode</p>
+                                    <p className="text-xs text-secondary">Temporarily restrict all account changes</p>
+                                </div>
+                                <Toggle enabled={accountLockdown} onChange={setAccountLockdown} size="sm" />
+                            </div>
+                        </div>
+                    </BentoCard>
+
+                    <BentoCard title="Team Access Control">
+                        <div className="mt-4">
+                            <div className="flex justify-between items-center mb-4">
+                                <p className="text-sm text-secondary">{teamMembers.length} team members</p>
+                                <Button variant="outline" size="sm" icon={Users}>Manage Team</Button>
+                            </div>
+                            <div className="space-y-2 mb-4">
+                                {teamMembers.map((member) => (
+                                    <div key={member.id} className="flex items-center justify-between p-2 bg-surface border border-border">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center text-xs font-medium text-primary">
+                                                {member.name.charAt(0)}
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-medium text-primary">{member.name}</p>
+                                                <p className="text-xs text-secondary">{member.email}</p>
+                                            </div>
+                                        </div>
+                                        <span className={`text-xs px-2 py-1 border ${
+                                            member.role === 'owner' ? 'text-purple-500 bg-purple-500/10 border-purple-500/20' :
+                                            member.role === 'admin' ? 'text-blue-500 bg-blue-500/10 border-blue-500/20' :
+                                            member.role === 'member' ? 'text-green-500 bg-green-500/10 border-green-500/20' :
+                                            'text-gray-500 bg-gray-500/10 border-gray-500/20'
+                                        }`}>
+                                            {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="pt-4 border-t border-border space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-medium text-primary">Require Approval for Takedowns</p>
+                                        <p className="text-xs text-secondary">Admin must approve before submission</p>
+                                    </div>
+                                    <Toggle enabled={requireApprovalForTakedowns} onChange={setRequireApprovalForTakedowns} size="sm" />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-medium text-primary">Audit Log Access</p>
+                                        <p className="text-xs text-secondary">Allow all team members to view logs</p>
+                                    </div>
+                                    <Toggle enabled={auditLogAccess} onChange={setAuditLogAccess} size="sm" />
                                 </div>
                             </div>
-                            <Button variant="outline" size="sm">Configure</Button>
                         </div>
                     </BentoCard>
                 </div>
             )}
 
-             {/* INTEGRATIONS SECTION */}
-            {activeSection === 'integrations' && (
+            {/* PLAN SECTION (was Integrations) */}
+            {activeSection === 'plan' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                                        <BentoCard title="Reverse Image Search API">
-                        <div className="mt-4 space-y-4">
-                            <p className="text-sm text-secondary">
-                                Select the provider used for reverse image matching against online duplicates and lookalikes.
-                            </p>
-
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => handleProviderChange('google_vision')}
-                                    className={`px-3 py-1.5 text-xs border rounded-lg transition-colors ${
-                                        !isSerpApiProvider
-                                            ? 'bg-primary text-inverse border-primary'
-                                            : 'bg-background text-secondary border-border hover:text-primary'
-                                    }`}
-                                >
-                                    Google Vision
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleProviderChange('serpapi_lens')}
-                                    className={`px-3 py-1.5 text-xs border rounded-lg transition-colors ${
-                                        isSerpApiProvider
-                                            ? 'bg-primary text-inverse border-primary'
-                                            : 'bg-background text-secondary border-border hover:text-primary'
-                                    }`}
-                                >
-                                    SerpApi Google Lens
-                                </button>
-                            </div>
-
-                            <div className="bg-surface/50 border border-border p-4 rounded-lg space-y-3">
-                                <h4 className="text-xs font-medium text-secondary uppercase tracking-wider">Setup Instructions</h4>
-                                {isSerpApiProvider ? (
-                                    <ol className="text-xs text-secondary space-y-1.5 list-decimal list-inside">
-                                        <li>Open <a href="https://serpapi.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">SerpApi Dashboard</a></li>
-                                        <li>{isServerManagedSerpApi ? 'Server-managed key is enabled in your environment' : 'Copy your SerpApi API key'}</li>
-                                        <li>Select <strong>SerpApi Google Lens</strong> as provider</li>
-                                        <li>{isServerManagedSerpApi ? 'Use Test Connection to validate proxy access' : 'Paste the key below and test connection'}</li>
-                                        <li>Keep uploaded assets in Supabase storage so signed URLs can be scanned</li>
-                                    </ol>
-                                ) : (
-                                    <ol className="text-xs text-secondary space-y-1.5 list-decimal list-inside">
-                                        <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Google Cloud Console</a></li>
-                                        <li>Create a new project (or select existing)</li>
-                                        <li>Enable the <strong>Cloud Vision API</strong></li>
-                                        <li>Go to Credentials -&gt; Create API Key</li>
-                                        <li>Restrict the key to Cloud Vision API (recommended)</li>
-                                        <li>Paste the key below</li>
-                                    </ol>
-                                )}
-                                <p className="text-[10px] text-secondary/70 mt-2">
-                                    {isSerpApiProvider
-                                        ? 'SerpApi pricing depends on your SerpApi plan and search volume.'
-                                        : 'Google Vision free tier includes 1,000 Web Detection searches/month.'}
-                                </p>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">
-                                    {isServerManagedSerpApi
-                                      ? 'SerpApi API Key (Server Managed)'
-                                      : isSerpApiProvider
-                                        ? 'SerpApi API Key'
-                                        : 'Google Vision API Key'}
-                                </label>
-                                {isServerManagedSerpApi && (
-                                    <p className="text-xs text-secondary mb-2">
-                                        Requests use the server proxy key from environment variables; no key is stored in browser localStorage.
-                                    </p>
-                                )}
-                                <div className="relative">
-                                    <input
-                                        type={showApiKey ? 'text' : 'password'}
-                                        value={visionApiKey}
-                                        onChange={(e) => {
-                                            setVisionApiKey(e.target.value);
-                                            setConnectionStatus('idle');
-                                        }}
-                                        placeholder={isServerManagedSerpApi
-                                          ? 'Server-managed key is active'
-                                          : isSerpApiProvider
-                                            ? 'Enter your SerpApi key'
-                                            : 'Enter your Google Cloud Vision API key'}
-                                        className="w-full px-3 py-2 pr-10 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none font-mono"
-                                        disabled={isServerManagedSerpApi}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowApiKey(!showApiKey)}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-secondary hover:text-primary p-1"
-                                        disabled={isServerManagedSerpApi}
-                                    >
-                                        {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                                    </button>
+                    <BentoCard title="Current Plan">
+                        <div className="mt-4">
+                            <div className="flex justify-between items-start">
+                                <div className="flex items-center gap-3">
+                                    <div className={`px-3 py-1.5 flex items-center gap-1.5 ${
+                                        currentPlan === 'enterprise' ? 'bg-purple-500/10 text-purple-500 border border-purple-500/20' :
+                                        currentPlan === 'pro' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' :
+                                        'bg-gray-500/10 text-gray-500 border border-gray-500/20'
+                                    }`}>
+                                        <Crown size={14} />
+                                        <span className="text-sm font-medium">{PLAN_TIERS[currentPlan].name}</span>
+                                    </div>
                                 </div>
+                                <Button size="sm">
+                                    {currentPlan === 'enterprise' ? 'Contact Sales' : 'Upgrade Plan'}
+                                </Button>
                             </div>
-
-                            <div className="flex items-center gap-3">
-                                <Button
-                                    onClick={handleSaveApiKey}
-                                    size="sm"
-                                    disabled={!visionApiKey && !isServerManagedSerpApi}
-                                >
-                                    {isServerManagedSerpApi
-                                      ? 'Use Server Key'
-                                      : isSerpApiProvider
-                                        ? 'Save SerpApi Key'
-                                        : 'Save Google Key'}
-                                </Button>
-                                <Button
-                                    onClick={handleTestConnection}
-                                    variant="secondary"
-                                    size="sm"
-                                    disabled={(!visionApiKey && !isServerManagedSerpApi) || isTestingConnection}
-                                >
-                                    {isTestingConnection ? (
-                                        <>
-                                            <Loader2 size={14} className="animate-spin mr-1" />
-                                            Testing...
-                                        </>
-                                    ) : (
-                                        'Test Connection'
-                                    )}
-                                </Button>
-
-                                {connectionStatus === 'success' && (
-                                    <span className="flex items-center gap-1 text-green-500 text-xs">
-                                        <CheckCircle size={14} />
-                                        Connected
-                                    </span>
-                                )}
-                                {connectionStatus === 'error' && (
-                                    <span className="flex items-center gap-1 text-red-500 text-xs">
-                                        <XCircle size={14} />
-                                        Failed
-                                    </span>
-                                )}
+                            <div className="mt-4 grid grid-cols-3 gap-4">
+                                <div>
+                                    <p className="text-[10px] text-secondary uppercase tracking-wider">Price</p>
+                                    <p className="font-mono text-sm text-primary mt-1">${PLAN_TIERS[currentPlan].price}/mo</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] text-secondary uppercase tracking-wider">Billing Cycle</p>
+                                    <p className="font-mono text-sm text-primary mt-1">Annual</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] text-secondary uppercase tracking-wider">Renewal Date</p>
+                                    <p className="font-mono text-sm text-primary mt-1">Oct 24, 2024</p>
+                                </div>
                             </div>
                         </div>
                     </BentoCard>
 
-                    <BentoCard title="Assistant Backend">
-                        <div className="mt-4">
-                            <p className="text-sm text-secondary mb-4">
-                                The dashboard assistant now runs in local analytics mode by default.
-                                For production AI responses, connect a server endpoint and keep model API keys server-side only.
-                            </p>
-                            <div className="flex items-center gap-2 text-xs text-secondary/70">
-                                <code className="bg-surface px-2 py-1 rounded">POST /api/assistant</code>
-                            </div>
+                    <BentoCard title="Usage Metrics">
+                        <div className="mt-4 space-y-4">
+                            <UsageBar
+                                label="Scans Used"
+                                used={planUsage.scansUsed}
+                                limit={planUsage.scansLimit}
+                            />
+                            <UsageBar
+                                label="Keywords Monitored"
+                                used={planUsage.keywordsMonitored}
+                                limit={planUsage.keywordsLimit}
+                            />
+                            <UsageBar
+                                label="Assets Protected"
+                                used={planUsage.assetsProtected}
+                                limit={planUsage.assetsLimit}
+                            />
+                            <UsageBar
+                                label="Team Seats"
+                                used={planUsage.teamSeats}
+                                limit={planUsage.teamSeatsLimit}
+                            />
+                            <UsageBar
+                                label="API Calls"
+                                used={planUsage.apiCalls}
+                                limit={planUsage.apiCallsLimit}
+                            />
+                            <UsageBar
+                                label="Storage Used"
+                                used={planUsage.storageUsedGB}
+                                limit={planUsage.storageLimitGB}
+                                unit=" GB"
+                            />
                         </div>
+                    </BentoCard>
+
+                    <BentoCard title="Plan Comparison">
+                        <button
+                            onClick={() => setPlanComparisonOpen(!planComparisonOpen)}
+                            className="w-full flex items-center justify-between mt-2 text-sm text-secondary hover:text-primary"
+                        >
+                            <span>Compare all features</span>
+                            {planComparisonOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </button>
+                        {planComparisonOpen && (
+                            <div className="mt-4 overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b border-border">
+                                            <th className="text-left py-2 text-secondary font-medium">Feature</th>
+                                            <th className="text-center py-2 text-secondary font-medium">Free</th>
+                                            <th className="text-center py-2 text-secondary font-medium">Pro</th>
+                                            <th className="text-center py-2 text-secondary font-medium">Enterprise</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr className="border-b border-border/50">
+                                            <td className="py-2 text-primary">Monthly Scans</td>
+                                            <td className="py-2 text-center text-secondary">100</td>
+                                            <td className="py-2 text-center text-secondary">1,000</td>
+                                            <td className="py-2 text-center text-secondary">Unlimited</td>
+                                        </tr>
+                                        <tr className="border-b border-border/50">
+                                            <td className="py-2 text-primary">Keywords</td>
+                                            <td className="py-2 text-center text-secondary">5</td>
+                                            <td className="py-2 text-center text-secondary">50</td>
+                                            <td className="py-2 text-center text-secondary">Unlimited</td>
+                                        </tr>
+                                        <tr className="border-b border-border/50">
+                                            <td className="py-2 text-primary">Team Seats</td>
+                                            <td className="py-2 text-center text-secondary">1</td>
+                                            <td className="py-2 text-center text-secondary">10</td>
+                                            <td className="py-2 text-center text-secondary">Unlimited</td>
+                                        </tr>
+                                        <tr className="border-b border-border/50">
+                                            <td className="py-2 text-primary">Priority Support</td>
+                                            <td className="py-2 text-center"><X size={14} className="inline text-secondary" /></td>
+                                            <td className="py-2 text-center text-secondary">Email</td>
+                                            <td className="py-2 text-center text-secondary">Dedicated</td>
+                                        </tr>
+                                        <tr className="border-b border-border/50">
+                                            <td className="py-2 text-primary">API Access</td>
+                                            <td className="py-2 text-center"><X size={14} className="inline text-secondary" /></td>
+                                            <td className="py-2 text-center"><CheckCircle size={14} className="inline text-green-500" /></td>
+                                            <td className="py-2 text-center"><CheckCircle size={14} className="inline text-green-500" /></td>
+                                        </tr>
+                                        <tr>
+                                            <td className="py-2 text-primary">Custom Reports</td>
+                                            <td className="py-2 text-center"><X size={14} className="inline text-secondary" /></td>
+                                            <td className="py-2 text-center"><CheckCircle size={14} className="inline text-green-500" /></td>
+                                            <td className="py-2 text-center"><CheckCircle size={14} className="inline text-green-500" /></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <div className="mt-4 flex gap-3 justify-center">
+                                    <Button variant="outline" size="sm">Upgrade to Pro</Button>
+                                    <Button variant="secondary" size="sm">Contact Sales</Button>
+                                </div>
+                            </div>
+                        )}
                     </BentoCard>
                 </div>
             )}
@@ -629,85 +1026,166 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                 </div>
              )}
 
-             {/* DEVELOPER SECTION */}
-             {activeSection === 'developer' && (
+            {/* LOGS SECTION (was Developer) */}
+            {activeSection === 'logs' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                    <BentoCard title="Seed Demo Data">
+                    <BentoCard title="Activity Log Filters">
                         <div className="mt-4 space-y-4">
-                            <p className="text-sm text-secondary">
-                                Populate your database with sample data to test the application. This will create sample keywords, whitelist entries, IP documents, infringements, and activity logs.
-                            </p>
-                            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
-                                <p className="text-xs text-yellow-500">
-                                    <strong>Note:</strong> This will add data to your current brand. Make sure you have a brand selected.
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-secondary">
-                                <span>Current Brand:</span>
-                                <code className="bg-surface px-2 py-1 rounded">{currentBrand?.name || 'None'}</code>
-                            </div>
-                            <div className="flex gap-3">
-                                <Button
-                                    onClick={handleSeedData}
-                                    disabled={isSeeding || !currentBrand}
-                                    size="sm"
+                            <div className="flex flex-wrap gap-3">
+                                <div className="flex-1 min-w-[200px]">
+                                    <div className="relative">
+                                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" />
+                                        <input
+                                            type="text"
+                                            value={logSearchQuery}
+                                            onChange={(e) => setLogSearchQuery(e.target.value)}
+                                            placeholder="Search logs..."
+                                            className="w-full pl-9 pr-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                        />
+                                    </div>
+                                </div>
+                                <select
+                                    value={logDateRange}
+                                    onChange={(e) => setLogDateRange(e.target.value)}
+                                    className="px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
                                 >
-                                    {isSeeding ? (
-                                        <>
-                                            <Loader2 size={14} className="animate-spin mr-1" />
-                                            Seeding...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Database size={14} className="mr-1" />
-                                            Seed Demo Data
-                                        </>
-                                    )}
-                                </Button>
-                                <Button
-                                    onClick={handleClearData}
-                                    variant="outline"
-                                    disabled={isClearing || !currentBrand}
-                                    size="sm"
-                                >
-                                    {isClearing ? (
-                                        <>
-                                            <Loader2 size={14} className="animate-spin mr-1" />
-                                            Clearing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Trash2 size={14} className="mr-1" />
-                                            Clear Data
-                                        </>
-                                    )}
-                                </Button>
+                                    <option value="7">Last 7 days</option>
+                                    <option value="30">Last 30 days</option>
+                                    <option value="90">Last 90 days</option>
+                                    <option value="custom">Custom range</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <span className="text-xs text-secondary flex items-center gap-1">
+                                    <Filter size={12} />
+                                    Log Level:
+                                </span>
+                                {(['info', 'warning', 'success', 'danger'] as AuditLogLevel[]).map((level) => (
+                                    <button
+                                        key={level}
+                                        onClick={() => {
+                                            if (logLevelFilter.includes(level)) {
+                                                setLogLevelFilter(logLevelFilter.filter(l => l !== level));
+                                            } else {
+                                                setLogLevelFilter([...logLevelFilter, level]);
+                                            }
+                                        }}
+                                        className={`px-2 py-1 text-xs border transition-colors ${
+                                            logLevelFilter.includes(level)
+                                                ? getLogLevelColor(level)
+                                                : 'text-secondary border-border bg-background'
+                                        }`}
+                                    >
+                                        {level.charAt(0).toUpperCase() + level.slice(1)}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <span className="text-xs text-secondary flex items-center gap-1">
+                                    <Type size={12} />
+                                    Action Type:
+                                </span>
+                                {(Object.keys(LOG_ACTION_TYPES) as AuditLogActionType[]).map((actionType) => (
+                                    <button
+                                        key={actionType}
+                                        onClick={() => {
+                                            if (logActionTypeFilter.includes(actionType)) {
+                                                setLogActionTypeFilter(logActionTypeFilter.filter(t => t !== actionType));
+                                            } else {
+                                                setLogActionTypeFilter([...logActionTypeFilter, actionType]);
+                                            }
+                                        }}
+                                        className={`px-2 py-1 text-xs border transition-colors ${
+                                            logActionTypeFilter.includes(actionType)
+                                                ? 'bg-primary text-inverse border-primary'
+                                                : 'text-secondary border-border bg-background hover:text-primary'
+                                        }`}
+                                    >
+                                        {LOG_ACTION_TYPES[actionType].label}
+                                    </button>
+                                ))}
                             </div>
                         </div>
                     </BentoCard>
 
-                    <BentoCard title="Debug Info">
-                        <div className="mt-4 space-y-2 font-mono text-xs">
-                            <div className="flex justify-between py-2 border-b border-border/50">
-                                <span className="text-secondary">User ID</span>
-                                <span className="text-primary">{user?.id || 'Not logged in'}</span>
+                    <BentoCard title="Activity Timeline">
+                        <div className="mt-4 space-y-3">
+                            {filteredLogs.length === 0 ? (
+                                <p className="text-sm text-secondary text-center py-8">No logs match your filters</p>
+                            ) : (
+                                filteredLogs.map((log) => {
+                                    const ActionIcon = getActionIcon(log.actionType);
+                                    return (
+                                        <div key={log.id} className="flex gap-3 p-3 bg-surface border border-border">
+                                            <div className={`p-2 ${getLogLevelColor(log.level)} border`}>
+                                                <ActionIcon size={16} />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <p className="text-sm font-medium text-primary">{log.title}</p>
+                                                    <span className={`text-[10px] px-2 py-0.5 border shrink-0 ${getLogLevelColor(log.level)}`}>
+                                                        {LOG_ACTION_TYPES[log.actionType].label}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-secondary mt-1 truncate">{log.target}</p>
+                                                <div className="flex items-center gap-3 mt-2 text-[10px] text-secondary">
+                                                    <span>User: {log.user}</span>
+                                                    <span>•</span>
+                                                    <span>{new Date(log.timestamp).toLocaleString()}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </BentoCard>
+
+                    <BentoCard title="Export & Audit">
+                        <div className="mt-4 space-y-4">
+                            <div className="flex flex-wrap gap-3 items-end">
+                                <div>
+                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Export Format</label>
+                                    <select
+                                        value={exportFormat}
+                                        onChange={(e) => setExportFormat(e.target.value)}
+                                        className="px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                    >
+                                        <option value="csv">CSV</option>
+                                        <option value="json">JSON</option>
+                                        <option value="pdf">PDF</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Date Range</label>
+                                    <select
+                                        className="px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                    >
+                                        <option>Last 7 days</option>
+                                        <option>Last 30 days</option>
+                                        <option>Last 90 days</option>
+                                        <option>All time</option>
+                                    </select>
+                                </div>
+                                <Button size="sm" icon={Download} onClick={handleExportLogs}>
+                                    Export Logs
+                                </Button>
                             </div>
-                            <div className="flex justify-between py-2 border-b border-border/50">
-                                <span className="text-secondary">Brand ID</span>
-                                <span className="text-primary">{currentBrand?.id || 'No brand'}</span>
-                            </div>
-                            <div className="flex justify-between py-2 border-b border-border/50">
-                                <span className="text-secondary">Brand Name</span>
-                                <span className="text-primary">{currentBrand?.name || '-'}</span>
-                            </div>
-                            <div className="flex justify-between py-2">
-                                <span className="text-secondary">Email</span>
-                                <span className="text-primary">{user?.email || '-'}</span>
+                            <div className="pt-4 border-t border-border">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-medium text-primary">Schedule Automated Export</p>
+                                        <p className="text-xs text-secondary">Automatically export logs on a schedule (Pro/Enterprise)</p>
+                                    </div>
+                                    <Button variant="outline" size="sm" disabled={currentPlan === 'free'}>
+                                        Configure
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                     </BentoCard>
                 </div>
-             )}
+            )}
         </div>
       </div>
     </div>
