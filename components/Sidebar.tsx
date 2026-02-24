@@ -48,7 +48,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdminMode,
   const navItems = [
     { group: 'Overview', items: [
       { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-      { id: 'search', icon: Search, label: 'Search', hasAlert: true },
+      { id: 'search', icon: Search, label: 'Infringements', hasAlert: true },
       ...(isAdminMode ? [{ id: 'admin', icon: Shield, label: 'Admin', hasAlert: true }] : []),
     ]},
     { group: 'Protection', items: [
