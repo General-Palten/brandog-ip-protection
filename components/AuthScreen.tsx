@@ -82,8 +82,8 @@ const AuthScreen: React.FC = () => {
                   To enable authentication, add these variables to your <code className="bg-surface px-1 rounded">.env.local</code> file:
                 </p>
                 <pre className="mt-2 text-xs bg-surface p-2 rounded overflow-x-auto">
-{`VITE_SUPABASE_URL=your_project_url
-VITE_SUPABASE_ANON_KEY=your_anon_key`}
+{`NEXT_PUBLIC_SUPABASE_URL=your_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key`}
                 </pre>
               </div>
             </div>

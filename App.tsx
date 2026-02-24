@@ -1,5 +1,6 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import { DashboardProvider, useDashboard } from './context/DashboardContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -23,7 +24,7 @@ import DashboardAnalytics from './components/views/DashboardAnalytics';
 import ReportGenerator from './components/views/ReportGenerator';
 import Settings from './components/views/Settings';
 import AdminDashboard from './components/views/AdminDashboard';
-import MarketingSite from './components/site/MarketingSite';
+import { getBypassRole, isBypassAuthEnabled } from './lib/runtime-config';
 
 // Role Selection / Login Screen
 type UserRole = 'brand' | 'admin' | null;
@@ -127,7 +128,7 @@ interface MainLayoutProps {
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
-  const isDevelopment = import.meta.env.DEV;
+  const isDevelopment = process.env.NODE_ENV !== 'production';
   const [devRoleOverride, setDevRoleOverride] = useState<UserRole>(null);
   const effectiveRole = isDevelopment && devRoleOverride ? devRoleOverride : userRole;
   const isAdminMode = effectiveRole === 'admin';
@@ -472,8 +473,8 @@ const LoadingScreen: React.FC = () => (
 // Inner app component that uses auth context
 const AppContent: React.FC = () => {
   const { user, profile, loading, isConfigured, signOut, brands } = useAuth();
-  const bypassAuth = import.meta.env.VITE_BYPASS_AUTH === 'true';
-  const bypassRole = import.meta.env.VITE_BYPASS_ROLE === 'admin' ? 'admin' : 'brand';
+  const bypassAuth = isBypassAuthEnabled();
+  const bypassRole = getBypassRole();
 
   // Legacy role state for demo mode (when Supabase not configured)
   const [demoRole, setDemoRole] = useState<UserRole>(() => {
@@ -548,28 +549,6 @@ const ConsoleAppRoot: React.FC = () => {
   );
 };
 
-const App: React.FC = () => {
-  const bypassAuth = import.meta.env.VITE_BYPASS_AUTH === 'true';
-
-  return (
-    <BrowserRouter>
-      <Routes>
-        {bypassAuth ? (
-          <>
-            <Route path="/" element={<Navigate to="/app" replace />} />
-            <Route path="/app/*" element={<ConsoleAppRoot />} />
-            <Route path="*" element={<Navigate to="/app" replace />} />
-          </>
-        ) : (
-          <>
-            <Route path="/" element={<MarketingSite />} />
-            <Route path="/app/*" element={<ConsoleAppRoot />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </>
-        )}
-      </Routes>
-    </BrowserRouter>
-  );
-};
+const App: React.FC = () => <ConsoleAppRoot />;
 
 export default App;

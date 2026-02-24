@@ -4,16 +4,11 @@ import { VisionSearchResponse, VisionSearchResult, VisionWebEntity } from '../ty
 import { getVisionConfig, isServerManagedSerpApiEnabled, type ImageSearchProvider } from './api-config';
 
 const VISION_API_URL = 'https://vision.googleapis.com/v1/images:annotate';
-const SERPAPI_URL = 'https://serpapi.com/search.json';
-const SERPAPI_DEV_PROXY_URL = '/api/serpapi/search.json';
+const SERPAPI_PROXY_URL = '/api/serpapi/search.json';
 const SERPAPI_ENGINE = 'google_lens';
 const SERPAPI_DEFAULT_TYPE = 'all';
 const SERPAPI_TEST_IMAGE_URL = 'https://upload.wikimedia.org/wikipedia/commons/3/3f/Fronalpstock_big.jpg';
-const SERPAPI_REQUEST_URL = (() => {
-  const configuredProxy = (import.meta.env.VITE_SERPAPI_PROXY_URL || '').trim();
-  if (configuredProxy) return configuredProxy;
-  return import.meta.env.DEV ? SERPAPI_DEV_PROXY_URL : SERPAPI_URL;
-})();
+const SERPAPI_REQUEST_URL: string = SERPAPI_PROXY_URL;
 const SERPAPI_NO_RESULTS_PATTERN = /hasn't returned any results|did not return any results|no results/i;
 const SERPAPI_CREDENTIAL_PATTERN = /invalid api key|missing api key|unauthorized|forbidden|access denied|not authorized/i;
 const SERPAPI_QUOTA_PATTERN = /run out|insufficient|quota|limit|billing/i;
@@ -111,7 +106,7 @@ const emptyVisionSearchResponse = (): VisionSearchResponse => ({
 });
 
 const isDirectSerpApiRequest = (): boolean => {
-  return SERPAPI_REQUEST_URL === SERPAPI_URL || SERPAPI_REQUEST_URL.startsWith('https://serpapi.com');
+  return SERPAPI_REQUEST_URL.startsWith('https://serpapi.com');
 };
 
 const appendSerpApiAuth = (params: URLSearchParams, apiKey: string): void => {
@@ -312,7 +307,7 @@ const searchWithSerpApiLens = async (apiKey: string, imageUrl?: string): Promise
     });
   } catch {
     throw new Error(
-      'SerpApi request failed (likely CORS/network). In dev, use the local proxy on /api/serpapi; in production, set VITE_SERPAPI_PROXY_URL to your backend proxy endpoint.'
+      'SerpApi request failed (likely network/proxy). Verify the Next.js route handler at /api/serpapi and server key configuration.'
     );
   }
 

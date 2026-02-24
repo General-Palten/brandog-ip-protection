@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { User, Session, AuthError } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
 import type { Profile, Brand } from '../lib/database.types'
+import { isBypassAuthEnabled } from '../lib/runtime-config'
 
 export interface AuthProfile {
   id: string
@@ -98,7 +99,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [brands, setBrands] = useState<Brand[]>([])
   const [currentBrandId, setCurrentBrandId] = useState<string | null>(null)
   const isConfigured = isSupabaseConfigured()
-  const bypassAuth = import.meta.env.VITE_BYPASS_AUTH === 'true'
+  const bypassAuth = isBypassAuthEnabled()
 
   // Fetch user profile from database, create if doesn't exist
   const fetchProfile = useCallback(async (userId: string, userEmail?: string, userFullName?: string): Promise<AuthProfile | null> => {

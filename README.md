@@ -8,18 +8,20 @@ Brand protection console with a public marketing site and authenticated `/app` w
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js
 
 1. Install dependencies:
    `npm install`
 2. Add Supabase env vars in `.env.local` for authenticated mode:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-3. Run the app:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+3. Optional for server-managed SerpApi Lens requests:
+   - `SERPAPI_API_KEY`
+4. Run the app:
    `npm run dev`
 
 ## Routes
 
 - Public site: `/`
+- Auth page: `/auth`
 - Product console: `/app`

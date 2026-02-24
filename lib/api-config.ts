@@ -14,7 +14,7 @@ export interface VisionConfig {
 }
 
 const DEFAULT_PROVIDER: ImageSearchProvider = 'google_vision';
-const SERVER_MANAGED_SERPAPI_FLAG = import.meta.env.VITE_SERPAPI_SERVER_KEY === 'true';
+const SERVER_MANAGED_SERPAPI_FLAG = process.env.NEXT_PUBLIC_SERPAPI_SERVER_KEY === 'true';
 
 const getActiveKey = (
   provider: ImageSearchProvider,

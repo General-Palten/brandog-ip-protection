@@ -1,24 +1,31 @@
-import { createClient } from '@supabase/supabase-js'
-import type { Database } from './database.types'
+import { createBrowserClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Missing Supabase environment variables. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local')
+if (typeof window !== 'undefined' && (!supabaseUrl || !supabaseAnonKey)) {
+  console.warn('Missing Supabase environment variables. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local')
 }
 
-export const supabase = createClient<Database>(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key',
-  {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
+let browserClient: SupabaseClient<any> | null = null
+
+const createPlaceholderClient = (): SupabaseClient<any> =>
+  createBrowserClient<any>(
+    'https://placeholder.supabase.co',
+    'placeholder-key'
+  )
+
+export const supabase = (() => {
+  if (browserClient) return browserClient
+  if (!supabaseUrl || !supabaseAnonKey) {
+    browserClient = createPlaceholderClient()
+    return browserClient
   }
-)
+
+  browserClient = createBrowserClient<any>(supabaseUrl, supabaseAnonKey)
+  return browserClient
+})()
 
 // Helper to check if Supabase is properly configured
 export const isSupabaseConfigured = (): boolean => {

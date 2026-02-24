@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowRight, BadgeCheck, Globe, Shield, Siren, TrendingUp } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { ShadButton } from '../ui/shadcn-button';
 import { ShadCard, ShadCardContent, ShadCardDescription, ShadCardHeader, ShadCardTitle } from '../ui/shadcn-card';
 
@@ -41,12 +41,12 @@ const MarketingSite: React.FC = () => {
             <span className="font-serif text-lg font-medium tracking-tight">Brandog</span>
           </div>
           <div className="flex items-center gap-3">
-            <Link to="/app">
+            <Link href="/app">
               <ShadButton variant="ghost" size="sm">
                 Open Console
               </ShadButton>
             </Link>
-            <Link to="/app">
+            <Link href="/app">
               <ShadButton size="sm">
                 Book Demo
                 <ArrowRight size={14} className="ml-1.5" />
@@ -73,13 +73,13 @@ const MarketingSite: React.FC = () => {
                 for legal and brand teams.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
-                <Link to="/app">
+                <Link href="/app">
                   <ShadButton>
                     Get Started
                     <ArrowRight size={14} className="ml-1.5" />
                   </ShadButton>
                 </Link>
-                <Link to="/app">
+                <Link href="/app">
                   <ShadButton variant="outline">See Product Tour</ShadButton>
                 </Link>
               </div>
@@ -165,7 +165,7 @@ const MarketingSite: React.FC = () => {
                   Bring your current channels, case volumes, and enforcement goals. We will map rollout in one session.
                 </p>
               </div>
-              <Link to="/app">
+              <Link href="/app">
                 <ShadButton variant="secondary" className="bg-inverse text-primary hover:bg-inverse/90">
                   Open Product Console
                   <ArrowRight size={14} className="ml-1.5" />

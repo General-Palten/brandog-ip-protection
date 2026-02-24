@@ -6,6 +6,7 @@ import { isVisionConfigured, getVisionConfig } from '../lib/api-config';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import { uploadAsset as uploadToStorage, getAssetUrl as getStorageUrl, deleteAsset as deleteFromStorage } from '../lib/storage';
+import { isBypassAuthEnabled } from '../lib/runtime-config';
 
 interface Notification {
   id: string;
@@ -315,7 +316,7 @@ const sha256Hex = async (buffer: ArrayBuffer): Promise<string> => {
 
 export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, currentBrand, isConfigured: isAuthConfigured } = useAuth();
-  const bypassAuth = import.meta.env.VITE_BYPASS_AUTH === 'true';
+  const bypassAuth = isBypassAuthEnabled();
   const isLocalDemoMode = bypassAuth && (!user || !currentBrand);
   const isConfigured = isSupabaseConfigured() && isAuthConfigured;
   const canLoadData = isConfigured && !!user && !!currentBrand;
