@@ -274,7 +274,7 @@ export const NAV_CATEGORIES = [
   ]}
 ];
 
-// Settings - Plan Tiers
+// Settings - Plan Tiers Configuration
 export const PLAN_TIERS: Record<PlanTier, { name: string; price: number; features: Record<string, string | number | boolean> }> = {
   free: {
     name: 'Free',
