@@ -13,8 +13,9 @@ export interface VisionConfig {
   isConfigured: boolean;
 }
 
-const DEFAULT_PROVIDER: ImageSearchProvider = 'google_vision';
 const SERVER_MANAGED_SERPAPI_FLAG = process.env.NEXT_PUBLIC_SERPAPI_SERVER_KEY === 'true';
+// Auto-select SERPAPI when server key is configured, otherwise fall back to Google Vision
+const DEFAULT_PROVIDER: ImageSearchProvider = SERVER_MANAGED_SERPAPI_FLAG ? 'serpapi_lens' : 'google_vision';
 
 const getActiveKey = (
   provider: ImageSearchProvider,
@@ -40,12 +41,14 @@ export function getVisionConfig(): VisionConfig {
   try {
     const stored = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!stored) {
+      // No local config - check if server-managed SERPAPI is available
+      const isConfigured = SERVER_MANAGED_SERPAPI_FLAG;
       return {
         provider: DEFAULT_PROVIDER,
         apiKey: '',
         googleVisionApiKey: '',
         serpApiKey: '',
-        isConfigured: false,
+        isConfigured,
       };
     }
 
