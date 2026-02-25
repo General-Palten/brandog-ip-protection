@@ -438,7 +438,7 @@ const buildLocalDemoDatasetFromMocks = (): {
   scanEvents: ScanEventItem[];
 } => {
   const now = new Date();
-  const statuses: InfringementStatus[] = ['detected', 'pending_review', 'in_progress', 'resolved', 'rejected', 'in_progress'];
+  const statuses: InfringementStatus[] = ['detected', 'pending_review', 'in_progress', 'resolved_success', 'dismissed_by_member', 'in_progress'];
 
   const infringements = MOCK_INFRINGEMENTS.slice(0, 6).map((item, index) => {
     const detectedAt = new Date(now);
@@ -477,7 +477,7 @@ const buildLocalDemoDatasetFromMocks = (): {
         },
       ];
 
-      if (item.status === 'in_progress' || item.status === 'resolved') {
+      if (item.status === 'in_progress' || item.status === 'resolved_success') {
         updates.push({
           id: `local_seed_update_${item.id}_2`,
           caseId: item.id,
@@ -501,7 +501,7 @@ const buildLocalDemoDatasetFromMocks = (): {
         });
       }
 
-      if (item.status === 'resolved') {
+      if (item.status === 'resolved_success') {
         updates.push({
           id: `local_seed_update_${item.id}_3`,
           caseId: item.id,
@@ -522,12 +522,12 @@ const buildLocalDemoDatasetFromMocks = (): {
         });
       }
 
-      if (item.status === 'rejected') {
+      if (item.status === 'dismissed_by_member') {
         updates.push({
           id: `local_seed_update_${item.id}_3`,
           caseId: item.id,
           type: 'custom',
-          message: 'Company dismissed case (pending review -> rejected).',
+          message: 'Company dismissed case (pending review -> dismissed).',
           createdAt: processedAt || requestedAt,
           createdBy: 'brand_owner',
           isRead: true,
@@ -1019,11 +1019,14 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     }
 
     // Trigger: precision degradation against the legal safety gate
-    const reviewedCases = infringements.filter((item) =>
-      item.status === 'in_progress' || item.status === 'resolved' || item.status === 'rejected'
-    );
+    const isReviewedStatus = (status: string) =>
+      status === 'in_progress' || status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed' || status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+    const isDismissedStatus = (status: string) =>
+      status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+
+    const reviewedCases = infringements.filter((item) => isReviewedStatus(item.status));
     const companyRejected = reviewedCases.filter((item) => {
-      if (item.status !== 'rejected') return false;
+      if (!isDismissedStatus(item.status)) return false;
       const updates = caseUpdatesByCase.get(item.id) || [];
       return updates.some((update) =>
         update.type === 'custom' && /company dismissed case|company whitelisted trusted entity/i.test(update.message)
@@ -2140,7 +2143,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       .select('id, status, detected_at')
       .eq('brand_id', currentBrand.id)
       .eq('infringing_url', normalizedUrl)
-      .in('status', ['resolved', 'rejected'])
+      .in('status', ['resolved_success', 'resolved_partial', 'resolved_failed', 'dismissed_by_admin', 'dismissed_by_member'])
       .order('detected_at', { ascending: false })
       .limit(5);
 

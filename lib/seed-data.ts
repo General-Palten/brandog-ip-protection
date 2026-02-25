@@ -133,7 +133,7 @@ export async function seedDatabase(userId: string, brandId: string) {
       {
         brand_id: brandId,
         platform: 'Instagram',
-        status: 'resolved',
+        status: 'resolved_success',
         similarity_score: 96,
         site_visitors: 12000,
         revenue_lost: 1800,

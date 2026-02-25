@@ -132,15 +132,18 @@ export function useChatContext(dateRange?: DateRange): ChatContextPayload {
 
   // Detection quality
   const detectionQuality = useMemo(() => {
-    const reviewedCases = infringementsInRange.filter((item) =>
-      item.status === 'in_progress' || item.status === 'resolved' || item.status === 'rejected'
-    );
+    const isReviewedStatus = (status: string) =>
+      status === 'in_progress' || status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed' || status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+    const isDismissedStatus = (status: string) =>
+      status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+
+    const reviewedCases = infringementsInRange.filter((item) => isReviewedStatus(item.status));
 
     let falsePositiveCount = 0;
 
     reviewedCases.forEach((item) => {
       const updates = caseUpdatesByCase.get(item.id) || [];
-      const isFalsePositive = item.status === 'rejected' && updates.some((update) =>
+      const isFalsePositive = isDismissedStatus(item.status) && updates.some((update) =>
         update.type === 'custom' && /company dismissed case|company whitelisted trusted entity/i.test(update.message)
       );
       if (isFalsePositive) falsePositiveCount += 1;
@@ -166,9 +169,14 @@ export function useChatContext(dateRange?: DateRange): ChatContextPayload {
 
   // Enforcement quality
   const enforcementQuality = useMemo(() => {
-    const candidateCases = infringementsInRange.filter((item) =>
-      item.status === 'in_progress' || item.status === 'resolved' || item.status === 'rejected'
-    );
+    const isReviewedStatus = (status: string) =>
+      status === 'in_progress' || status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed' || status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+    const isClosedStatus = (status: string) =>
+      status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed' || status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+    const isResolvedStatus = (status: string) =>
+      status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed';
+
+    const candidateCases = infringementsInRange.filter((item) => isReviewedStatus(item.status));
     const enforcedCases = candidateCases.filter((item) => {
       const updates = caseUpdatesByCase.get(item.id) || [];
       return updates.some((update) =>
@@ -176,8 +184,8 @@ export function useChatContext(dateRange?: DateRange): ChatContextPayload {
       ) || item.status === 'in_progress';
     });
 
-    const closedCases = enforcedCases.filter((item) => item.status === 'resolved' || item.status === 'rejected');
-    const resolvedCount = closedCases.filter((item) => item.status === 'resolved').length;
+    const closedCases = enforcedCases.filter((item) => isClosedStatus(item.status));
+    const resolvedCount = closedCases.filter((item) => isResolvedStatus(item.status)).length;
     const appealCount = enforcedCases.filter((item) => {
       const updates = caseUpdatesByCase.get(item.id) || [];
       return updates.some((update) =>
