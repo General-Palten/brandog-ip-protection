@@ -311,9 +311,12 @@ const DashboardAnalytics: React.FC = () => {
   }, [violationMapData]);
 
   const detectionQuality = useMemo(() => {
-    const reviewedCases = infringementsInRange.filter((item) =>
-      item.status === 'in_progress' || item.status === 'resolved' || item.status === 'rejected'
-    );
+    const isReviewedStatus = (status: string) =>
+      status === 'in_progress' || status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed' || status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+    const isDismissedStatus = (status: string) =>
+      status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+
+    const reviewedCases = infringementsInRange.filter((item) => isReviewedStatus(item.status));
 
     let falsePositiveCount = 0;
     const providerStats: Record<string, { reviewed: number; falsePositives: number }> = {};
@@ -321,7 +324,7 @@ const DashboardAnalytics: React.FC = () => {
 
     reviewedCases.forEach((item) => {
       const updates = caseUpdatesByCase.get(item.id) || [];
-      const isFalsePositive = item.status === 'rejected' && updates.some((update) =>
+      const isFalsePositive = isDismissedStatus(item.status) && updates.some((update) =>
         update.type === 'custom' && /company dismissed case|company whitelisted trusted entity/i.test(update.message)
       );
 
@@ -382,9 +385,16 @@ const DashboardAnalytics: React.FC = () => {
   }, [infringementsInRange, caseUpdatesByCase, scanEvents, rangeBounds]);
 
   const enforcementQuality = useMemo(() => {
-    const candidateCases = infringementsInRange.filter((item) =>
-      item.status === 'in_progress' || item.status === 'resolved' || item.status === 'rejected'
-    );
+    const isReviewedStatus = (status: string) =>
+      status === 'in_progress' || status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed' || status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+    const isClosedStatus = (status: string) =>
+      status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed' || status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+    const isResolvedStatus = (status: string) =>
+      status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed';
+    const isDismissedStatus = (status: string) =>
+      status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+
+    const candidateCases = infringementsInRange.filter((item) => isReviewedStatus(item.status));
     const enforcedCases = candidateCases.filter((item) => {
       const updates = caseUpdatesByCase.get(item.id) || [];
       return updates.some((update) =>
@@ -392,9 +402,9 @@ const DashboardAnalytics: React.FC = () => {
       ) || item.status === 'in_progress';
     });
 
-    const closedCases = enforcedCases.filter((item) => item.status === 'resolved' || item.status === 'rejected');
-    const resolvedCount = closedCases.filter((item) => item.status === 'resolved').length;
-    const rejectedCount = closedCases.filter((item) => item.status === 'rejected').length;
+    const closedCases = enforcedCases.filter((item) => isClosedStatus(item.status));
+    const resolvedCount = closedCases.filter((item) => isResolvedStatus(item.status)).length;
+    const rejectedCount = closedCases.filter((item) => isDismissedStatus(item.status)).length;
     const appealCount = enforcedCases.filter((item) => {
       const updates = caseUpdatesByCase.get(item.id) || [];
       return updates.some((update) =>
@@ -421,7 +431,7 @@ const DashboardAnalytics: React.FC = () => {
     closedCases.forEach((item) => {
       const bucket = byPlatform[item.platform] || { closed: 0, resolved: 0 };
       bucket.closed += 1;
-      if (item.status === 'resolved') bucket.resolved += 1;
+      if (isResolvedStatus(item.status)) bucket.resolved += 1;
       byPlatform[item.platform] = bucket;
     });
 
@@ -443,6 +453,15 @@ const DashboardAnalytics: React.FC = () => {
   }, [infringementsInRange, caseUpdatesByCase, takedownRequests]);
 
   const qualityRegressions = useMemo(() => {
+    const isReviewedStatus = (status: string) =>
+      status === 'in_progress' || status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed' || status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+    const isClosedStatus = (status: string) =>
+      status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed' || status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+    const isResolvedStatus = (status: string) =>
+      status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed';
+    const isDismissedStatus = (status: string) =>
+      status === 'dismissed_by_admin' || status === 'dismissed_by_member';
+
     const currentWindowMs = Math.max(24 * 60 * 60 * 1000, rangeBounds.endMs - rangeBounds.startMs);
     const previousEnd = rangeBounds.startMs - 1;
     const previousStart = previousEnd - currentWindowMs;
@@ -453,11 +472,9 @@ const DashboardAnalytics: React.FC = () => {
       item.detectedAt >= previousStartStr && item.detectedAt <= previousEndStr
     );
 
-    const previousReviewed = previousCases.filter((item) =>
-      item.status === 'in_progress' || item.status === 'resolved' || item.status === 'rejected'
-    );
+    const previousReviewed = previousCases.filter((item) => isReviewedStatus(item.status));
     const previousFalsePositives = previousReviewed.filter((item) => {
-      if (item.status !== 'rejected') return false;
+      if (!isDismissedStatus(item.status)) return false;
       const updates = caseUpdatesByCase.get(item.id) || [];
       return updates.some((update) =>
         update.type === 'custom' && /company dismissed case|company whitelisted trusted entity/i.test(update.message)
@@ -468,10 +485,8 @@ const DashboardAnalytics: React.FC = () => {
       ? (previousReviewed.length - previousFalsePositives) / previousReviewed.length
       : detectionQuality.precision;
 
-    const previousClosed = previousCases.filter((item) =>
-      item.status === 'resolved' || item.status === 'rejected'
-    );
-    const previousResolved = previousClosed.filter((item) => item.status === 'resolved').length;
+    const previousClosed = previousCases.filter((item) => isClosedStatus(item.status));
+    const previousResolved = previousClosed.filter((item) => isResolvedStatus(item.status)).length;
     const previousSuccessRate = previousClosed.length > 0
       ? previousResolved / previousClosed.length
       : enforcementQuality.successRate;
