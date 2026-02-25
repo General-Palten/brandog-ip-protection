@@ -387,7 +387,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
           setSelectedNotificationCase(null);
         }}
         onDismiss={(id) => {
-          dismissInfringement(id);
+          dismissInfringement(id, 'other');
           setSelectedNotificationCase(null);
         }}
       />
