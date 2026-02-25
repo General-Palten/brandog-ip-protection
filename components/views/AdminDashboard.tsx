@@ -1,14 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { useDashboard } from '../../context/DashboardContext';
+import { useAuth } from '../../context/AuthContext';
 import { InfringementItem, InfringementStatus, CaseUpdateType } from '../../types';
 import { CASE_UPDATE_TYPES } from '../../constants';
+import { inferCaseTransitionAction } from '../../lib/case-status';
+import { createWhitelistEntry } from '../../lib/data-service';
 import StatusBadge from '../ui/StatusBadge';
 import PlatformIcon from '../ui/PlatformIcon';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import {
   ExternalLink, CheckCircle, XCircle, PlayCircle,
-  Eye, ChevronDown, ChevronUp, Shield, AlertTriangle, Clock, Send, MessageSquare, User, Mail, ArrowUpDown, RotateCcw,
+  Eye, ChevronDown, ChevronUp, Shield, AlertTriangle, Clock, Send, MessageSquare, User, Mail, ArrowUpDown, RotateCcw, UserCheck,
   Search, Download, Calendar, X
 } from 'lucide-react';
 
@@ -16,13 +19,15 @@ type SortColumn = 'caseId' | 'all' | 'new' | 'brand' | 'platform' | 'seller' | '
 type SortDirection = 'asc' | 'desc';
 
 const AdminDashboard: React.FC = () => {
+  const { currentBrand } = useAuth();
   const {
     infringements,
     takedownRequests,
     updateTakedownStatus,
     getTakedownForCase,
     addCaseUpdate,
-    getCaseUpdates
+    getCaseUpdates,
+    addNotification,
   } = useDashboard();
 
   const [selectedCase, setSelectedCase] = useState<InfringementItem | null>(null);
@@ -189,8 +194,68 @@ const AdminDashboard: React.FC = () => {
     rejected: infringements.filter(i => i.status === 'rejected').length,
   }), [infringements]);
 
+  const normalizeWhitelistDomain = (input: string): string | null => {
+    const raw = input.trim().toLowerCase();
+    if (!raw) return null;
+    const withProtocol = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(raw) ? raw : `https://${raw}`;
+    try {
+      const hostname = new URL(withProtocol).hostname.toLowerCase();
+      return hostname.replace(/^www\./, '');
+    } catch {
+      return raw.replace(/^www\./, '');
+    }
+  };
+
   const handleStatusUpdate = (caseId: string, status: InfringementStatus) => {
-    updateTakedownStatus(caseId, status, adminNotes);
+    const caseItem = infringements.find(item => item.id === caseId);
+    if (!caseItem) return;
+
+    const transitionAction = inferCaseTransitionAction(caseItem.status, status);
+    const normalizedNotes = (status === 'resolved' || status === 'rejected')
+      ? (adminNotes.trim() || `Closure reason: marked ${status.replace('_', ' ')} by reviewer`)
+      : adminNotes;
+    updateTakedownStatus(caseId, status, normalizedNotes, transitionAction);
+    setSelectedCase(null);
+    setAdminNotes('');
+  };
+
+  const handleWhitelistCase = async (caseId: string) => {
+    const caseItem = infringements.find(item => item.id === caseId);
+    if (!caseItem || !currentBrand) {
+      addNotification('error', 'A brand must be selected to whitelist this case');
+      return;
+    }
+
+    const whitelistDomain = normalizeWhitelistDomain(caseItem.infringingUrl || caseItem.sellerName || '');
+    if (!whitelistDomain) {
+      addNotification('error', 'Unable to resolve a whitelist domain from this case');
+      return;
+    }
+
+    const whitelistName = caseItem.sellerName?.trim() || whitelistDomain;
+    const whitelistResult = await createWhitelistEntry(
+      currentBrand.id,
+      whitelistName,
+      whitelistDomain,
+      caseItem.platform
+    );
+
+    if (whitelistResult.error && whitelistResult.error !== 'duplicate') {
+      addNotification('error', 'Failed to add whitelist entry');
+      return;
+    }
+
+    if (whitelistResult.error === 'duplicate') {
+      addNotification('info', `${whitelistDomain} is already whitelisted`);
+    } else {
+      addNotification('success', `Whitelisted ${whitelistDomain}`);
+    }
+
+    const nextNotes = adminNotes.trim()
+      ? adminNotes
+      : `Whitelisted trusted entity (${whitelistDomain})`;
+    const transitionAction = 'company_whitelist';
+    updateTakedownStatus(caseId, 'rejected', nextNotes, transitionAction);
     setSelectedCase(null);
     setAdminNotes('');
   };
@@ -219,8 +284,27 @@ const AdminDashboard: React.FC = () => {
   };
 
   const handleBulkAction = (status: InfringementStatus) => {
+    const actionLabel = status === 'in_progress'
+      ? 'move selected cases to In Progress'
+      : status === 'resolved'
+        ? 'resolve selected cases'
+        : status === 'rejected'
+          ? 'reject selected cases'
+          : `change selected cases to ${status.replace('_', ' ')}`;
+
+    if (!window.confirm(`Confirm bulk action: ${actionLabel}?`)) {
+      return;
+    }
+
     selectedCases.forEach(caseId => {
-      updateTakedownStatus(caseId, status, '');
+      const caseItem = infringements.find(item => item.id === caseId);
+      if (!caseItem) return;
+
+      const transitionAction = inferCaseTransitionAction(caseItem.status, status);
+      const normalizedNotes = (status === 'resolved' || status === 'rejected')
+        ? `Closure reason: bulk action marked ${status.replace('_', ' ')}`
+        : '';
+      updateTakedownStatus(caseId, status, normalizedNotes, transitionAction);
     });
     setSelectedCases(new Set());
   };
@@ -368,7 +452,7 @@ const AdminDashboard: React.FC = () => {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-orange-500/10 border border-orange-500/30 rounded text-orange-500 hover:bg-orange-500/20 transition-colors"
             >
               <PlayCircle size={12} />
-              In Progress
+              Enforce
             </button>
             <button
               onClick={() => handleBulkAction('resolved')}
@@ -561,23 +645,23 @@ const AdminDashboard: React.FC = () => {
                             <button
                               onClick={() => handleStatusUpdate(item.id, 'in_progress')}
                               className="p-1.5 hover:bg-orange-500/10 border border-border rounded text-orange-500 transition-colors"
-                              title="Mark In Progress"
+                              title="Enforce"
                             >
                               <PlayCircle size={14} />
                             </button>
                             <button
-                              onClick={() => handleStatusUpdate(item.id, 'resolved')}
-                              className="p-1.5 hover:bg-green-500/10 border border-border rounded text-green-500 transition-colors"
-                              title="Mark Resolved"
-                            >
-                              <CheckCircle size={14} />
-                            </button>
-                            <button
                               onClick={() => handleStatusUpdate(item.id, 'rejected')}
                               className="p-1.5 hover:bg-red-500/10 border border-border rounded text-red-500 transition-colors"
-                              title="Reject"
+                              title="Dismiss"
                             >
                               <XCircle size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleWhitelistCase(item.id)}
+                              className="p-1.5 hover:bg-blue-500/10 border border-border rounded text-blue-500 transition-colors"
+                              title="Whitelist"
+                            >
+                              <UserCheck size={14} />
                             </button>
                           </>
                         )}
@@ -601,9 +685,9 @@ const AdminDashboard: React.FC = () => {
                         )}
                         {(item.status === 'resolved' || item.status === 'rejected') && (
                           <button
-                            onClick={() => handleStatusUpdate(item.id, 'pending_review')}
+                            onClick={() => handleStatusUpdate(item.id, 'detected')}
                             className="p-1.5 hover:bg-blue-500/10 border border-border rounded text-blue-500 transition-colors"
-                            title="Re-open Case"
+                            title="Reopen as Detected"
                           >
                             <RotateCcw size={14} />
                           </button>
@@ -811,17 +895,35 @@ const AdminDashboard: React.FC = () => {
 
             {/* Actions */}
             <div className="flex gap-3 pt-2">
-              {(selectedCase.status === 'pending_review' || selectedCase.status === 'in_progress') && (
+              {selectedCase.status === 'pending_review' && (
                 <>
-                  {selectedCase.status === 'pending_review' && (
-                    <Button
-                      variant="outline"
-                      icon={PlayCircle}
-                      onClick={() => handleStatusUpdate(selectedCase.id, 'in_progress')}
-                    >
-                      Mark In Progress
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    icon={PlayCircle}
+                    onClick={() => handleStatusUpdate(selectedCase.id, 'in_progress')}
+                  >
+                    Enforce
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    icon={XCircle}
+                    className="text-red-500 hover:bg-red-500/10"
+                    onClick={() => handleStatusUpdate(selectedCase.id, 'rejected')}
+                  >
+                    Dismiss
+                  </Button>
+                  <Button
+                    variant="outline"
+                    icon={UserCheck}
+                    className="text-blue-500 hover:bg-blue-500/10"
+                    onClick={() => handleWhitelistCase(selectedCase.id)}
+                  >
+                    Whitelist
+                  </Button>
+                </>
+              )}
+              {selectedCase.status === 'in_progress' && (
+                <>
                   <Button
                     variant="primary"
                     icon={CheckCircle}
@@ -848,9 +950,9 @@ const AdminDashboard: React.FC = () => {
                     variant="outline"
                     icon={RotateCcw}
                     className="text-blue-500 hover:bg-blue-500/10"
-                    onClick={() => handleStatusUpdate(selectedCase.id, 'pending_review')}
+                    onClick={() => handleStatusUpdate(selectedCase.id, 'detected')}
                   >
-                    Re-open Case
+                    Reopen as Detected
                   </Button>
                 </>
               )}

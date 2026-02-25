@@ -2,25 +2,23 @@
 @config "../tailwind.config.mjs";
 
 :root {
-  --background: 255 255 255;
-  --surface: 244 244 245;
-  --border: 228 228 231;
-  --primary: 9 9 11;
-  --secondary: 113 113 122;
+  /* Main content area (light mode) */
+  --background: 248 250 252;
+  --surface: 255 255 255;
+  --border: 226 232 240;
+  --primary: 24 24 27;
+  --secondary: 100 116 139;
   --accent: 24 24 27;
   --inverse: 255 255 255;
-  --stripe-color: 244 244 245;
-}
+  --stripe-color: 241 245 249;
 
-.dark {
-  --background: 12 12 12;
-  --surface: 24 24 27;
-  --border: 39 39 42;
-  --primary: 250 250 250;
-  --secondary: 161 161 170;
-  --accent: 250 250 250;
-  --inverse: 12 12 12;
-  --stripe-color: 26 26 26;
+  /* Sidebar (always dark grey) */
+  --sidebar-bg: 17 17 19;
+  --sidebar-surface: 26 26 29;
+  --sidebar-border: 38 38 42;
+  --sidebar-primary: 255 255 255;
+  --sidebar-secondary: 161 161 170;
+  --sidebar-accent: 168 85 247;
 }
 
 body {

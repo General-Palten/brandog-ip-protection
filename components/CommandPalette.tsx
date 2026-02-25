@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { 
-  Search, Sun, Moon, LayoutDashboard, Type, Image, 
-  UserCheck, UserX, FileText, FileBarChart, Settings, 
+import {
+  Search, LayoutDashboard, Type, Image,
+  UserCheck, UserX, FileText, FileBarChart, Settings, Gavel, ShieldOff,
   ArrowRight, RefreshCcw, Command
 } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
@@ -26,7 +26,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ navigate }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   
-  const { toggleTheme, theme, resetData, addNotification } = useDashboard();
+  const { resetData, addNotification, populateDummyData } = useDashboard();
 
   // Toggle Logic
   useEffect(() => {
@@ -48,6 +48,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ navigate }) => {
     // Navigation
     { id: 'nav-dash', label: 'Go to Dashboard', icon: LayoutDashboard, section: 'Navigation', action: () => navigate('dashboard') },
     { id: 'nav-search', label: 'Infringements', icon: Search, section: 'Navigation', action: () => navigate('search') },
+    { id: 'nav-enforcing', label: 'Enforcing', icon: Gavel, section: 'Navigation', action: () => navigate('enforcing') },
+    { id: 'nav-takedowns', label: 'Takedowns', icon: ShieldOff, section: 'Navigation', action: () => navigate('takedowns') },
     { id: 'nav-kw', label: 'Manage Keywords', icon: Type, section: 'Navigation', action: () => navigate('keywords') },
     { id: 'nav-assets', label: 'View Assets', icon: Image, section: 'Navigation', action: () => navigate('images') },
     { id: 'nav-white', label: 'Whitelist', icon: UserCheck, section: 'Navigation', action: () => navigate('whitelist') },
@@ -57,13 +59,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ navigate }) => {
     { id: 'nav-set', label: 'Settings', icon: Settings, section: 'Navigation', action: () => navigate('settings') },
     
     // Actions
-    { 
-        id: 'act-theme', 
-        label: theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode', 
-        icon: theme === 'dark' ? Sun : Moon, 
-        section: 'Actions', 
-        action: toggleTheme 
-    },
     {
         id: 'act-sim',
         label: 'Run Quick Scan (Simulation)',
@@ -72,6 +67,15 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ navigate }) => {
         action: () => {
             addNotification('info', 'Initiating quick scan on all active keywords...');
             setTimeout(() => addNotification('success', 'Scan complete. 3 new potential threats found.'), 2000);
+        }
+    },
+    {
+        id: 'act-seed',
+        label: 'Populate Dummy Data',
+        icon: RefreshCcw,
+        section: 'Actions',
+        action: () => {
+            void populateDummyData();
         }
     },
     
@@ -157,7 +161,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ navigate }) => {
             onKeyDown={handleListKeyDown}
           />
           <div className="flex items-center gap-1">
-             <span className="text-[10px] bg-surface border border-border px-1.5 py-0.5 rounded text-secondary font-mono">ESC</span>
+             <span className="text-[10px] bg-surface border border-border px-1.5 py-0.5 rounded-lg text-secondary font-mono">ESC</span>
           </div>
         </div>
 

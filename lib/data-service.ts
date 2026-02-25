@@ -4,6 +4,7 @@
  */
 
 import { supabase, isSupabaseConfigured } from './supabase'
+import { CaseTransitionAction, inferCaseTransitionAction, validateCaseStatusTransition } from './case-status'
 import type {
   Infringement,
   InfringementInsert,
@@ -24,6 +25,7 @@ import type {
 } from './database.types'
 import type {
   InfringementItem,
+  InfringementStatus,
   KeywordItem,
   TakedownRequest as LocalTakedownRequest,
   CaseUpdate as LocalCaseUpdate,
@@ -49,6 +51,9 @@ export function transformInfringement(dbInfringement: Infringement, brandName: s
     revenueLost: Number(dbInfringement.revenue_lost) || 0,
     status: dbInfringement.status as InfringementItem['status'],
     detectedAt: dbInfringement.detected_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+    detectionProvider: dbInfringement.detection_provider || undefined,
+    detectionMethod: dbInfringement.detection_method || undefined,
+    sourceFingerprint: dbInfringement.source_fingerprint || undefined,
     country: dbInfringement.country || 'Unknown',
     originalAssetId: dbInfringement.original_asset_id || undefined,
     infringingUrl: dbInfringement.infringing_url || undefined,
@@ -157,9 +162,32 @@ export async function createInfringement(
 
 export async function updateInfringementStatus(
   id: string,
-  status: InfringementItem['status']
+  status: InfringementItem['status'],
+  transitionAction?: CaseTransitionAction
 ): Promise<boolean> {
   if (!isSupabaseConfigured()) return false
+
+  const { data: existing, error: fetchError } = await supabase
+    .from('infringements')
+    .select('status')
+    .eq('id', id)
+    .single()
+
+  if (fetchError || !existing) {
+    console.error('Error reading current infringement status:', fetchError)
+    return false
+  }
+
+  const transitionValidation = validateCaseStatusTransition(
+    existing.status as InfringementStatus,
+    status,
+    transitionAction || inferCaseTransitionAction(existing.status as InfringementStatus, status)
+  )
+  if (!transitionValidation.ok) {
+    const transitionError = 'error' in transitionValidation ? transitionValidation.error : null
+    console.error('Invalid infringement status transition:', transitionError)
+    return false
+  }
 
   const { error } = await supabase
     .from('infringements')
@@ -294,10 +322,14 @@ export async function createTakedownRequest(
     })
 
   // Update infringement status
-  await supabase
-    .from('infringements')
-    .update({ status: 'pending_review' })
-    .eq('id', infringementId)
+  const statusUpdated = await updateInfringementStatus(
+    infringementId,
+    'pending_review',
+    'agent_detection_complete'
+  )
+  if (!statusUpdated) {
+    console.error('Error updating infringement status during takedown creation')
+  }
 
   return takedown
 }
@@ -305,14 +337,38 @@ export async function createTakedownRequest(
 export async function updateTakedownStatus(
   takedownId: string,
   status: string,
-  adminNotes?: string
+  adminNotes?: string,
+  transitionAction?: CaseTransitionAction
 ): Promise<boolean> {
   if (!isSupabaseConfigured()) return false
+
+  const typedStatus = status as InfringementStatus
+  const { data: existing, error: fetchError } = await supabase
+    .from('takedown_requests')
+    .select('status')
+    .eq('id', takedownId)
+    .single()
+
+  if (fetchError || !existing) {
+    console.error('Error reading current takedown status:', fetchError)
+    return false
+  }
+
+  const transitionValidation = validateCaseStatusTransition(
+    existing.status as InfringementStatus,
+    typedStatus,
+    transitionAction || inferCaseTransitionAction(existing.status as InfringementStatus, typedStatus)
+  )
+  if (!transitionValidation.ok) {
+    const transitionError = 'error' in transitionValidation ? transitionValidation.error : null
+    console.error('Invalid takedown status transition:', transitionError)
+    return false
+  }
 
   const { error } = await supabase
     .from('takedown_requests')
     .update({
-      status,
+      status: typedStatus,
       admin_notes: adminNotes,
       processed_at: new Date().toISOString(),
     })
@@ -591,6 +647,21 @@ export function transformWhitelist(dbWhitelist: Whitelist): WhitelistItem {
   }
 }
 
+function normalizeWhitelistDomainInput(domain: string): string {
+  const raw = domain.trim().toLowerCase()
+  if (!raw) return raw
+
+  const withProtocol = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(raw)
+    ? raw
+    : `https://${raw}`
+
+  try {
+    return new URL(withProtocol).hostname.toLowerCase().replace(/^www\./, '')
+  } catch {
+    return raw.replace(/^www\./, '')
+  }
+}
+
 export async function fetchWhitelist(brandId: string): Promise<WhitelistItem[]> {
   if (!isSupabaseConfigured()) return []
 
@@ -615,13 +686,15 @@ export async function createWhitelistEntry(
   platform?: string
 ): Promise<{ data: Whitelist | null; error: string | null }> {
   if (!isSupabaseConfigured()) return { data: null, error: 'not_configured' }
+  const normalizedDomain = normalizeWhitelistDomainInput(domain)
+  if (!normalizedDomain) return { data: null, error: 'invalid_domain' }
 
   const { data, error } = await supabase
     .from('whitelist')
     .insert({
       brand_id: brandId,
       name,
-      domain,
+      domain: normalizedDomain,
       platform: platform || null,
     })
     .select()

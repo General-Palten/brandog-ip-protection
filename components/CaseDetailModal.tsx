@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { InfringementItem, CaseUpdate } from '../types';
+import { InfringementItem, CaseUpdate, InfringementPriority } from '../types';
 import { CASE_UPDATE_TYPES } from '../constants';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
@@ -8,10 +8,12 @@ import StatusBadge from './ui/StatusBadge';
 import ImageCarousel from './ui/ImageCarousel';
 import TrademarkMatchPanel from './TrademarkMatchPanel';
 import { useDashboard } from '../context/DashboardContext';
+import { needsMemberInput, canRetry, isDetectionStatus } from '../lib/case-status';
+import { getEffectivePriority, formatRevenueDisplay } from '../lib/priority';
 import {
   ExternalLink, Copy, Camera, FileText,
   ShieldAlert, CheckCircle, XCircle, Send, Server, ImageOff,
-  Shield, Clock, MessageSquare, User, Zap
+  Shield, Clock, MessageSquare, User, Zap, Bell, RefreshCw, AlertTriangle
 } from 'lucide-react';
 
 interface CaseDetailModalProps {
@@ -30,7 +32,16 @@ const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
   const [imageLoadError, setImageLoadError] = useState<{ original: boolean; copycat: boolean }>({ original: false, copycat: false });
   const [messageText, setMessageText] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const { getAssetURL, markUpdatesAsRead, takedownRequests, addCaseUpdate } = useDashboard();
+  const {
+    getAssetURL,
+    markUpdatesAsRead,
+    takedownRequests,
+    addCaseUpdate,
+    respondToAdminRequest,
+    withdrawRequest,
+    requestRetry,
+    setInfringementPriority
+  } = useDashboard();
 
   // Handle sending message to lawyer
   const handleSendMessage = () => {
@@ -80,6 +91,44 @@ const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
 
   if (!item) return null;
 
+  // Derived state for the new workflow
+  const showNeedsInput = needsMemberInput(item.status);
+  const showRetryButton = canRetry(item.status);
+  const showRequestButton = isDetectionStatus(item.status);
+  const priority = getEffectivePriority(item);
+  const revenueDisplay = formatRevenueDisplay(item);
+
+  // Handle respond to admin request
+  const handleRespondToAdmin = async () => {
+    if (!messageText.trim()) return;
+    setIsSending(true);
+    await respondToAdminRequest(item.id, messageText.trim());
+    setMessageText('');
+    setIsSending(false);
+    onClose();
+  };
+
+  // Handle withdraw
+  const handleWithdraw = async () => {
+    await withdrawRequest(item.id);
+    onClose();
+  };
+
+  // Handle retry
+  const handleRetry = async () => {
+    if (!messageText.trim()) return;
+    setIsSending(true);
+    await requestRetry(item.id, messageText.trim());
+    setMessageText('');
+    setIsSending(false);
+    onClose();
+  };
+
+  // Handle priority change
+  const handlePriorityChange = async (newPriority: InfringementPriority) => {
+    await setInfringementPriority(item.id, newPriority);
+  };
+
   return (
     <Modal
       isOpen={isOpen}
@@ -91,6 +140,11 @@ const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
         {/* Case Header */}
         <div className="px-6 py-4 border-b border-border flex justify-between items-center bg-surface/30">
           <div className="flex items-center gap-4">
+            {/* Priority indicator */}
+            <div className={`w-3 h-3 rounded-full ${
+              priority === 'high' ? 'bg-red-500' :
+              priority === 'medium' ? 'bg-orange-400' : 'bg-yellow-400'
+            }`} title={`${priority} priority`} />
             <PlatformIcon platform={item.platform} size={20} showLabel className="text-primary font-medium" />
             <div className="h-4 w-px bg-border"></div>
             <StatusBadge status={item.status} />
@@ -102,15 +156,40 @@ const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
             )}
             <span className="text-xs text-secondary font-mono">Detected: {item.detectedAt}</span>
           </div>
-          <a
-            href={item.infringingUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs flex items-center gap-1 text-primary hover:underline"
-          >
-            Visit Listing <ExternalLink size={12} />
-          </a>
+          <div className="flex items-center gap-3">
+            {/* Priority selector (only in Detections/Pending) */}
+            {(isDetectionStatus(item.status) || item.status === 'pending_review' || showNeedsInput) && (
+              <select
+                value={priority}
+                onChange={(e) => handlePriorityChange(e.target.value as InfringementPriority)}
+                className="text-xs bg-background border border-border rounded px-2 py-1 text-primary focus:outline-none focus:border-primary cursor-pointer"
+              >
+                <option value="high">High Priority</option>
+                <option value="medium">Medium Priority</option>
+                <option value="low">Low Priority</option>
+              </select>
+            )}
+            <a
+              href={item.infringingUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs flex items-center gap-1 text-primary hover:underline"
+            >
+              Visit Listing <ExternalLink size={12} />
+            </a>
+          </div>
         </div>
+
+        {/* Needs Input Banner */}
+        {showNeedsInput && (
+          <div className="px-6 py-3 bg-orange-500/10 border-b border-orange-500/30 flex items-center gap-3">
+            <Bell className="text-orange-500" size={18} />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-orange-700 dark:text-orange-400">Action Required</p>
+              <p className="text-xs text-orange-600 dark:text-orange-400/80">Admin has requested more information. Please respond below.</p>
+            </div>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex border-b border-border px-6">
@@ -412,55 +491,193 @@ const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                 </div>
               )}
 
-              {/* Action Buttons */}
+              {/* Action Buttons - Dynamic based on status */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Primary Action Card */}
-                <div className="p-4 bg-surface border border-border rounded-lg space-y-3">
-                  <h4 className="font-medium text-sm">Take Action</h4>
-                  <p className="text-xs text-secondary">
-                    {item.status === 'detected'
-                      ? 'Submit this case for takedown processing by our legal team.'
-                      : 'This case is currently being processed by our team.'}
-                  </p>
 
-                  <Button
-                    variant="primary"
-                    className="w-full justify-center"
-                    icon={Send}
-                    disabled={item.status !== 'detected'}
-                    onClick={() => {
-                      onConfirm(item.id);
-                      onClose();
-                    }}
-                  >
-                    {item.status === 'detected' ? 'Request Takedown' : 'Takedown Requested'}
-                  </Button>
-
-                  {item.status !== 'detected' && (
-                    <div className="flex items-center justify-center gap-2 pt-1">
-                      <StatusBadge status={item.status} />
+                {/* For Detected status: Request Enforcement */}
+                {showRequestButton && (
+                  <>
+                    <div className="p-4 bg-surface border border-border rounded-lg space-y-3">
+                      <h4 className="font-medium text-sm">Take Action</h4>
+                      <p className="text-xs text-secondary">
+                        Submit this case for enforcement processing by our team.
+                      </p>
+                      <Button
+                        variant="primary"
+                        className="w-full justify-center"
+                        icon={Send}
+                        onClick={() => {
+                          onConfirm(item.id);
+                          onClose();
+                        }}
+                      >
+                        Request Enforcement
+                      </Button>
                     </div>
-                  )}
-                </div>
 
-                {/* Alternative Actions Card */}
-                <div className="p-4 bg-surface border border-border rounded-lg space-y-3">
-                  <h4 className="font-medium text-sm">Alternative Actions</h4>
-                  <p className="text-xs text-secondary">
-                    If this detection is incorrect, you can dismiss it as a false positive.
-                  </p>
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start text-red-500 hover:bg-red-500/10 hover:text-red-600"
-                    icon={XCircle}
-                    onClick={() => {
-                      onDismiss(item.id);
-                      onClose();
-                    }}
-                  >
-                    Dismiss as False Positive
-                  </Button>
-                </div>
+                    <div className="p-4 bg-surface border border-border rounded-lg space-y-3">
+                      <h4 className="font-medium text-sm">Alternative Actions</h4>
+                      <p className="text-xs text-secondary">
+                        If this detection is incorrect, you can dismiss it.
+                      </p>
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start text-red-500 hover:bg-red-500/10 hover:text-red-600"
+                        icon={XCircle}
+                        onClick={() => {
+                          onDismiss(item.id);
+                          onClose();
+                        }}
+                      >
+                        Dismiss Case
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+                {/* For Needs Member Input status: Respond or Withdraw */}
+                {showNeedsInput && (
+                  <>
+                    <div className="p-4 bg-orange-500/5 border border-orange-500/30 rounded-lg space-y-3 md:col-span-2">
+                      <h4 className="font-medium text-sm flex items-center gap-2">
+                        <Bell className="text-orange-500" size={16} />
+                        Admin Requested More Information
+                      </h4>
+                      <p className="text-xs text-secondary">
+                        Please provide additional information or context to help us process your case.
+                      </p>
+                      <textarea
+                        value={messageText}
+                        onChange={(e) => setMessageText(e.target.value)}
+                        placeholder="Provide additional context, evidence references, or answers to admin's questions..."
+                        className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary placeholder:text-secondary/50 focus:outline-none focus:border-primary/50 resize-none"
+                        rows={3}
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          variant="primary"
+                          icon={Send}
+                          onClick={handleRespondToAdmin}
+                          disabled={!messageText.trim() || isSending}
+                        >
+                          {isSending ? 'Sending...' : 'Submit Response'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="text-red-500 hover:bg-red-500/10"
+                          icon={XCircle}
+                          onClick={handleWithdraw}
+                        >
+                          Withdraw Request
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* For Failed status: Retry option */}
+                {showRetryButton && (
+                  <>
+                    <div className="p-4 bg-red-500/5 border border-red-500/30 rounded-lg space-y-3 md:col-span-2">
+                      <h4 className="font-medium text-sm flex items-center gap-2">
+                        <AlertTriangle className="text-red-500" size={16} />
+                        Takedown Failed
+                      </h4>
+                      <p className="text-xs text-secondary">
+                        The takedown attempt was unsuccessful. You can request a retry with additional information.
+                      </p>
+                      <textarea
+                        value={messageText}
+                        onChange={(e) => setMessageText(e.target.value)}
+                        placeholder="Explain why a retry might succeed (new evidence, different approach, etc.)..."
+                        className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary placeholder:text-secondary/50 focus:outline-none focus:border-primary/50 resize-none"
+                        rows={3}
+                      />
+                      <Button
+                        variant="primary"
+                        icon={RefreshCw}
+                        onClick={handleRetry}
+                        disabled={!messageText.trim() || isSending}
+                      >
+                        {isSending ? 'Requesting...' : 'Request Retry'}
+                      </Button>
+                      {item.retryCount && item.retryCount > 0 && (
+                        <p className="text-xs text-secondary">
+                          This case has been retried {item.retryCount} time{item.retryCount > 1 ? 's' : ''}.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* For Pending/In Progress: Show status */}
+                {(item.status === 'pending_review' || item.status === 'in_progress') && (
+                  <>
+                    <div className="p-4 bg-surface border border-border rounded-lg space-y-3">
+                      <h4 className="font-medium text-sm">Case Status</h4>
+                      <p className="text-xs text-secondary">
+                        {item.status === 'pending_review'
+                          ? 'Your request is awaiting review by our team.'
+                          : 'Our team is actively working on this case.'}
+                      </p>
+                      <StatusBadge status={item.status} size="md" />
+                    </div>
+
+                    {item.status === 'pending_review' && (
+                      <div className="p-4 bg-surface border border-border rounded-lg space-y-3">
+                        <h4 className="font-medium text-sm">Change Your Mind?</h4>
+                        <p className="text-xs text-secondary">
+                          You can withdraw your request before it's processed.
+                        </p>
+                        <Button
+                          variant="ghost"
+                          className="text-red-500 hover:bg-red-500/10"
+                          icon={XCircle}
+                          onClick={handleWithdraw}
+                        >
+                          Withdraw Request
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* For Success/Partial: Show results */}
+                {(item.status === 'resolved_success' || item.status === 'resolved_partial') && (
+                  <div className="p-4 bg-green-500/5 border border-green-500/30 rounded-lg space-y-3 md:col-span-2">
+                    <h4 className="font-medium text-sm flex items-center gap-2">
+                      <CheckCircle className="text-green-500" size={16} />
+                      {item.status === 'resolved_success' ? 'Takedown Successful' : 'Partial Success'}
+                    </h4>
+                    <p className="text-xs text-secondary">
+                      {item.status === 'resolved_success'
+                        ? 'The infringing content has been successfully removed.'
+                        : 'Some of the infringing content was removed. Check case progress for details.'}
+                    </p>
+                    <StatusBadge status={item.status} size="md" />
+                  </div>
+                )}
+
+                {/* For Dismissed: Show status */}
+                {(item.status === 'dismissed_by_member' || item.status === 'dismissed_by_admin') && (
+                  <div className="p-4 bg-surface border border-border rounded-lg space-y-3 md:col-span-2">
+                    <h4 className="font-medium text-sm">Case Dismissed</h4>
+                    <p className="text-xs text-secondary">
+                      {item.status === 'dismissed_by_member'
+                        ? 'You dismissed this case.'
+                        : 'This case was dismissed by admin.'}
+                      {item.dismissReason && (
+                        <span className="block mt-1">
+                          Reason: {item.dismissReason === 'licensed_authorized' ? 'Licensed/Authorized'
+                            : item.dismissReason === 'not_our_product' ? 'Not our product'
+                            : item.dismissReason === 'insufficient_evidence' ? 'Insufficient evidence'
+                            : item.dismissReasonText || 'Other'}
+                        </span>
+                      )}
+                    </p>
+                    <StatusBadge status={item.status} size="md" />
+                  </div>
+                )}
               </div>
             </div>
           )}

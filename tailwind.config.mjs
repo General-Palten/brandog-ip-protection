@@ -24,6 +24,14 @@ export default {
         secondary: 'rgb(var(--secondary) / <alpha-value>)',
         accent: 'rgb(var(--accent) / <alpha-value>)',
         inverse: 'rgb(var(--inverse) / <alpha-value>)',
+        sidebar: {
+          DEFAULT: 'rgb(var(--sidebar-bg) / <alpha-value>)',
+          surface: 'rgb(var(--sidebar-surface) / <alpha-value>)',
+          border: 'rgb(var(--sidebar-border) / <alpha-value>)',
+          primary: 'rgb(var(--sidebar-primary) / <alpha-value>)',
+          secondary: 'rgb(var(--sidebar-secondary) / <alpha-value>)',
+          accent: 'rgb(var(--sidebar-accent) / <alpha-value>)',
+        },
       },
       borderRadius: {
         none: '0',

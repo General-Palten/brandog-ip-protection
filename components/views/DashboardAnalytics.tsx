@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useDashboard } from '../../context/DashboardContext';
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
 import BentoCard from '../ui/BentoCard';
-import { MoreHorizontal, ChevronDown, ShieldCheck, AlertTriangle, TrendingUp, TrendingDown, Calendar, Sparkles, CornerDownLeft, ChevronLeft, ChevronRight, Globe } from 'lucide-react';
+import { MoreHorizontal, ChevronDown, ShieldCheck, AlertTriangle, TrendingUp, TrendingDown, Calendar, ChevronRight, Globe } from 'lucide-react';
 import { PLATFORM_CONFIG } from '../../constants';
-import { InfringementItem } from '../../types';
+import { InfringementItem, TakedownRequest } from '../../types';
 import { isActiveCaseStatus, isResolvedCaseStatus } from '../../lib/case-status';
+import WorldMap, { getCountryName } from '../WorldMap';
+import CountryViolationsPanel from '../CountryViolationsPanel';
+import CaseDetailModal from '../CaseDetailModal';
 
 interface DateRange {
     key: string;
@@ -14,49 +17,6 @@ interface DateRange {
     end: Date;
 }
 
-// --- Markdown Formatter Component ---
-const FormattedText = ({ text }: { text: string }) => {
-  const parseBold = (str: string) => {
-    const parts = str.split(/(\*\*.*?\*\*)/g);
-    return parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <span key={i} className="font-medium text-primary">{part.slice(2, -2)}</span>;
-      }
-      return part;
-    });
-  };
-
-  const lines = text.split('\n');
-  return (
-    <div className="space-y-2 text-xs leading-relaxed text-secondary font-mono">
-       {lines.map((line, i) => {
-          const trimmed = line.trim();
-          if (!trimmed) return <div key={i} className="h-1" />;
-          
-          // Bullet points
-          if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-             return (
-                <div key={i} className="flex gap-2 pl-1">
-                   <span className="text-secondary/80 shrink-0">*</span>
-                   <span>{parseBold(trimmed.substring(2))}</span>
-                </div>
-             );
-          }
-          // Numbered lists
-          if (/^\d+\.\s/.test(trimmed)) {
-             const [num, ...rest] = trimmed.split('.');
-             return (
-                <div key={i} className="flex gap-2 pl-1">
-                   <span className="text-secondary/80 font-mono text-[10px] pt-0.5 shrink-0">{num}.</span>
-                   <span>{parseBold(rest.join('.').trim())}</span>
-                </div>
-             );
-          }
-          return <div key={i}>{parseBold(line)}</div>
-       })}
-    </div>
-  )
-}
 
 const PRESETS = [
     { label: 'Last 7 Days', key: '7d', days: 7 },
@@ -66,141 +26,6 @@ const PRESETS = [
     { label: 'Last Year', key: '1y', days: 365 },
 ];
 
-const SUGGESTIONS = [
-    "Identify highest risk platform",
-    "Calculate potential revenue loss",
-    "Show recent infringements",
-    "Draft a takedown notice",
-    "Compare infringement trends",
-    "Analyze copycat regions"
-];
-
-// --- Dotted World Map Component ---
-const DottedMap = ({ data }: { data: { country: string, value: number }[] }) => {
-    // Standard Mercator projection path for major landmasses
-    const worldPath = "M84.0,248.8 C87.3,248.1 90.6,247.4 93.9,246.7 C94.5,246.6 95.1,246.4 95.7,246.3 C96.3,246.2 96.9,246.0 97.5,245.9 C100.2,245.3 103.0,244.8 105.7,244.2 C106.1,244.1 106.4,244.1 106.8,244.0 C108.9,243.6 111.0,243.2 113.1,242.7 C113.8,242.6 114.5,242.5 115.2,242.3 C116.7,242.0 118.1,241.7 119.6,241.4 C122.3,240.8 125.0,240.3 127.7,239.7 C128.4,239.5 129.2,239.4 129.9,239.2 C131.6,238.9 133.3,238.5 135.0,238.1 C135.9,237.9 136.9,237.7 137.8,237.5 C141.0,236.8 144.2,236.2 147.4,235.5 C147.9,235.4 148.4,235.3 148.9,235.2 C150.3,234.9 151.8,234.6 153.2,234.3 C155.1,233.9 157.1,233.5 159.0,233.1 C159.7,233.0 160.3,232.8 161.0,232.7 C164.8,231.9 168.6,231.1 172.4,230.3 C173.6,230.1 174.9,229.8 176.1,229.6 C178.5,229.1 180.8,228.6 183.2,228.1 C183.9,227.9 184.6,227.8 185.3,227.6 C189.4,226.8 193.5,226.0 197.6,225.1 C198.5,224.9 199.3,224.8 200.2,224.6 L200.2,224.6 L200.7,219.0 L203.2,217.5 L208.5,214.5 L211.5,210.2 L216.5,208.2 L218.0,205.2 L223.5,205.2 L225.5,201.2 L230.5,199.2 L233.5,195.2 L237.5,195.2 L240.0,192.2 L242.0,188.2 L245.5,188.2 L247.5,185.2 L250.0,182.2 L252.0,178.2 L255.5,178.2 L258.0,175.2 L260.0,172.2 L263.5,172.2 L265.5,168.2 L268.0,165.2 L271.0,165.2 L273.5,162.2 L275.5,158.2 L278.5,158.2 L281.0,155.2 L283.0,152.2 L286.0,152.2 L288.5,148.2 L290.5,145.2 L293.5,145.2 L296.0,142.2 L298.0,138.2 L301.0,138.2 L303.5,135.2 L305.5,132.2 L308.5,132.2 L311.0,128.2 L313.0,125.2 L316.0,125.2 L318.5,122.2 L320.5,118.2 L323.5,118.2 L326.0,115.2 L328.0,112.2 L331.0,112.2 L333.5,108.2 L335.5,105.2 L338.5,105.2 L341.0,102.2 L343.0,98.2 L346.0,98.2 L348.5,95.2 L350.5,92.2 L353.5,92.2 L356.0,88.2 L358.0,85.2 L361.0,85.2 L363.5,82.2 L365.5,78.2 L368.5,78.2 L371.0,75.2 L373.0,72.2 L376.0,72.2 L378.5,68.2 L380.5,65.2 L383.5,65.2 L386.0,62.2 L388.0,58.2 L391.0,58.2 L393.5,55.2 L395.5,52.2 L398.5,52.2 L401.0,48.2 L403.0,45.2 L406.0,45.2 L408.5,42.2 L410.5,38.2 L413.5,38.2 L416.0,35.2 L418.0,32.2 L421.0,32.2 L423.5,28.2 L425.5,25.2 L428.5,25.2 L431.0,22.2 L433.0,18.2 L436.0,18.2 L438.5,15.2 L440.5,12.2 L443.5,12.2 L446.0,8.2 L448.0,5.2 L451.0,5.2 L453.5,2.2 L800,2.2 L800,400 L0,400 L0,250.2 L2.2,250.2 L5.2,249.2 L10.2,247.2 L15.2,246.2 L20.2,245.2 L25.2,244.2 L30.2,243.2 L35.2,242.2 L40.2,241.2 L45.2,240.2 L50.2,239.2 L55.2,238.2 L60.2,237.2 L65.2,236.2 L70.2,235.2 L75.2,234.2 L80.2,233.2 L85.2,232.2 L90.2,231.2 L95.2,230.2 L100.2,229.2 L105.2,228.2 L110.2,227.2 L115.2,226.2 L120.2,225.2 L125.2,224.2 L130.2,223.2 L135.2,222.2 L140.2,221.2 L145.2,220.2 L150.2,219.2 L155.2,218.2 L160.2,217.2 L165.2,216.2 L170.2,215.2 L175.2,214.2 L180.2,213.2 L185.2,212.2 L190.2,211.2 L195.2,210.2 L200.2,209.2 Z M715,310 L750,300 L760,330 L730,340 Z M600,100 L700,100 L700,200 L600,200 Z M380,80 L420,80 L420,120 L380,110 Z M150,80 L300,80 L280,250 L180,280 Z";
-
-    // Approximate Mercator coordinates for 800x400 map
-    const countryCoordinates: Record<string, {x: number, y: number, name: string}> = {
-        'US': { x: 190, y: 140, name: 'United States' },
-        'CN': { x: 610, y: 150, name: 'China' },
-        'UK': { x: 395, y: 105, name: 'United Kingdom' },
-        'RU': { x: 600, y: 90, name: 'Russia' },
-        'BR': { x: 280, y: 260, name: 'Brazil' },
-        'AU': { x: 680, y: 310, name: 'Australia' },
-        'IN': { x: 570, y: 175, name: 'India' },
-        'DE': { x: 410, y: 110, name: 'Germany' },
-        'FR': { x: 400, y: 120, name: 'France' },
-        'CA': { x: 190, y: 80, name: 'Canada' },
-    };
-
-    return (
-        <div className="relative w-full h-full flex items-center justify-center bg-background rounded-lg overflow-hidden select-none">
-             
-             {/* Map Container */}
-             <div className="relative w-full h-full">
-                 <svg 
-                    viewBox="0 0 800 400" 
-                    className="w-full h-full" 
-                    preserveAspectRatio="xMidYMid meet"
-                 >
-                     <defs>
-                         {/* Dot Pattern - Creates the "Dotted" look */}
-                         <pattern id="dots" x="0" y="0" width="8" height="8" patternUnits="userSpaceOnUse">
-                             <circle cx="2" cy="2" r="1.5" className="fill-border/90" />
-                         </pattern>
-                         
-                         {/* Mask - Uses the world path to cut out the dots */}
-                         <mask id="world-mask">
-                             <rect width="100%" height="100%" fill="black" />
-                             {/* Use the high-res path variable here */}
-                             <path 
-                                d={worldPath}
-                                fill="white" 
-                             />
-                         </mask>
-                     </defs>
-                     
-                     {/* Background Grid (Optional, makes it look more 'cyber') */}
-                     <rect width="100%" height="100%" fill="rgb(var(--background))" />
-                     
-                     {/* The Dotted Map Layer */}
-                     {/* We fill the entire rect with dots, but mask it to only show landmasses */}
-                     <rect width="100%" height="100%" fill="url(#dots)" mask="url(#world-mask)" opacity="0.8" />
-                     
-                     {/* Connecting Lines (Optional aesthetic) */}
-                     <path 
-                        d="M190,140 Q400,-20 610,150" 
-                        fill="none" 
-                        stroke="url(#gradient-line)" 
-                        strokeWidth="1" 
-                        opacity="0.2"
-                        strokeDasharray="4 4"
-                     />
-                     <defs>
-                        <linearGradient id="gradient-line" x1="0" y1="0" x2="1" y2="0">
-                            <stop offset="0%" stopColor="#ef4444" stopOpacity="0" />
-                            <stop offset="50%" stopColor="#ef4444" stopOpacity="0.5" />
-                            <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
-                        </linearGradient>
-                     </defs>
-
-                     {/* Hotspots */}
-                     {data.map((item, i) => {
-                         const coords = countryCoordinates[item.country] || { x: 400, y: 200, name: item.country };
-                         // Radius based on value relative to max, clamp between 4 and 25
-                         const pulseRadius = Math.min(25, Math.max(10, Math.sqrt(item.value) * 3));
-                         
-                         return (
-                            <g key={item.country} className="group cursor-pointer">
-                                {/* Pulsing Outer Circle */}
-                                <circle 
-                                    cx={coords.x} 
-                                    cy={coords.y} 
-                                    r={pulseRadius} 
-                                    className="fill-red-500/10 animate-[pulse_3s_ease-in-out_infinite]"
-                                    style={{ animationDelay: `${i * 0.5}s` }}
-                                />
-                                {/* Inner Glow */}
-                                <circle 
-                                    cx={coords.x} 
-                                    cy={coords.y} 
-                                    r={6} 
-                                    className="fill-red-500/30" 
-                                />
-                                {/* Solid Core */}
-                                <circle 
-                                    cx={coords.x} 
-                                    cy={coords.y} 
-                                    r={2} 
-                                    className="fill-red-500" 
-                                />
-                                
-                                {/* Tooltip Group */}
-                                <foreignObject x={coords.x + 10} y={coords.y - 40} width="120" height="50" className="overflow-visible pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50">
-                                    <div className="bg-background border border-border rounded px-2 py-1.5 shadow-xl flex flex-col items-start whitespace-nowrap">
-                                        <span className="text-[10px] font-bold text-primary uppercase tracking-wider leading-none mb-1">{coords.name}</span>
-                                        <span className="text-[10px] text-red-500 font-mono leading-none">{item.value} Violations</span>
-                                    </div>
-                                </foreignObject>
-                            </g>
-                         );
-                     })}
-                 </svg>
-             </div>
-             
-             {/* Legend / Overlay Info */}
-             <div className="absolute bottom-4 left-4 flex gap-4 text-[10px] text-secondary font-mono">
-                 <div className="flex items-center gap-2">
-                     <span className="w-2 h-2 rounded-full bg-border"></span> Active Region
-                 </div>
-                 <div className="flex items-center gap-2">
-                     <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span> Violation Hotspot
-                 </div>
-             </div>
-        </div>
-    );
-};
 
 const DateRangeSelector = ({ 
     selected, 
@@ -278,7 +103,7 @@ const DateRangeSelector = ({
         <div className="relative" ref={containerRef}>
             <button 
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-2 bg-background border border-border px-3 py-1.5 text-xs uppercase tracking-wide text-secondary hover:text-primary hover:border-secondary transition-colors font-mono rounded-none group"
+                className="flex items-center gap-2 bg-background border border-border px-3 py-1.5 text-xs uppercase tracking-wide text-secondary hover:text-primary hover:border-secondary transition-colors font-mono rounded-lg group"
             >
                 <Calendar size={14} className="text-secondary group-hover:text-primary transition-colors" />
                 <span className="truncate max-w-[120px] text-left">{selected.label}</span>
@@ -286,13 +111,13 @@ const DateRangeSelector = ({
             </button>
             
             {isOpen && (
-                <div className="absolute right-0 top-full mt-2 w-72 bg-background border border-border shadow-xl z-50 animate-in fade-in zoom-in-95 duration-200 flex flex-col">
+                <div className="absolute right-0 top-full mt-2 w-72 bg-background border border-border shadow-xl z-50 animate-in fade-in zoom-in-95 duration-200 flex flex-col rounded-xl">
                     <div className="p-2 grid grid-cols-2 gap-1">
                         {PRESETS.map(preset => (
                             <button
                                 key={preset.key}
                                 onClick={() => handlePreset(preset)}
-                                className={`px-3 py-2 text-xs text-left hover:bg-surface transition-colors rounded-sm ${selected.key === preset.key ? 'text-primary font-medium bg-surface' : 'text-secondary'}`}
+                                className={`px-3 py-2 text-xs text-left hover:bg-surface transition-colors rounded-lg ${selected.key === preset.key ? 'text-primary font-medium bg-surface' : 'text-secondary'}`}
                             >
                                 {preset.label}
                             </button>
@@ -308,19 +133,19 @@ const DateRangeSelector = ({
                                 type="date" 
                                 value={customStart}
                                 onChange={(e) => setCustomStart(e.target.value)}
-                                className="w-full bg-background border border-border rounded-none px-2 py-1.5 text-xs text-primary focus:border-primary outline-none"
+                                className="w-full bg-background border border-border rounded-lg px-2 py-1.5 text-xs text-primary focus:border-primary outline-none"
                             />
                             <span className="text-secondary">-</span>
                             <input 
                                 type="date" 
                                 value={customEnd}
                                 onChange={(e) => setCustomEnd(e.target.value)}
-                                className="w-full bg-background border border-border rounded-none px-2 py-1.5 text-xs text-primary focus:border-primary outline-none"
+                                className="w-full bg-background border border-border rounded-lg px-2 py-1.5 text-xs text-primary focus:border-primary outline-none"
                             />
                         </div>
                         <button 
                             onClick={handleCustomApply}
-                            className="w-full bg-primary text-inverse py-1.5 text-xs font-medium hover:opacity-90 transition-opacity rounded-sm"
+                            className="w-full bg-primary text-inverse py-1.5 text-xs font-medium hover:opacity-90 transition-opacity rounded-lg"
                         >
                             Apply Custom Range
                         </button>
@@ -349,7 +174,7 @@ const CustomTooltip = ({ active, payload }: any) => {
 };
 
 const DashboardAnalytics: React.FC = () => {
-  const { infringements } = useDashboard();
+  const { infringements, takedownRequests, scanEvents, reportInfringement, dismissInfringement } = useDashboard();
   
   // Global Date Range - Default to Last 30 Days (Normalized)
   const [globalDateRange, setGlobalDateRange] = useState<DateRange>(() => {
@@ -364,17 +189,15 @@ const DashboardAnalytics: React.FC = () => {
   const [revenueData, setRevenueData] = useState<{i: number, value: number, date: string}[]>([]);
   const [lossData, setLossData] = useState<{i: number, value: number, date: string}[]>([]);
   
-  // Chat State
-  const [chatMessages, setChatMessages] = useState<{role: 'user' | 'model', text: string}[]>([
-      { role: 'model', text: "Hello! I'm Brandog AI. Ask me about your active threats, revenue loss, or recent detections." }
-  ]);
-  const [chatInput, setChatInput] = useState('');
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(true);
-  
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  // Country Panel State
+  const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
+  const [selectedCountryViolations, setSelectedCountryViolations] = useState<InfringementItem[]>([]);
+  const [isCountryPanelOpen, setIsCountryPanelOpen] = useState(false);
+
+  // Case Detail Modal State
+  const [selectedItem, setSelectedItem] = useState<InfringementItem | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
 
   // --- Aggregate Data Based on Range ---
 
@@ -391,21 +214,31 @@ const DashboardAnalytics: React.FC = () => {
 
   // Aggregate Big Numbers based on ALL available data relevant to the metric, filtered by range if needed
   // Use String Comparison for dates to avoid timezone mismatches with generated data
+  const rangeBounds = useMemo(() => {
+    const startStr = globalDateRange.start.toISOString().split('T')[0];
+    const endStr = globalDateRange.end.toISOString().split('T')[0];
+    const startMs = globalDateRange.start.getTime();
+    const endMs = globalDateRange.end.getTime();
+    return { startStr, endStr, startMs, endMs };
+  }, [globalDateRange]);
+
+  const infringementsInRange = useMemo(() => {
+    return infringements.filter((item) => {
+      return item.detectedAt >= rangeBounds.startStr && item.detectedAt <= rangeBounds.endStr;
+    });
+  }, [infringements, rangeBounds]);
+
+  const caseUpdatesByCase = useMemo(() => {
+    return new Map(takedownRequests.map((request) => [request.caseId, request.updates || []] as const));
+  }, [takedownRequests]);
+
   const filteredProtected = useMemo(() => {
-      const startStr = globalDateRange.start.toISOString().split('T')[0];
-      const endStr = globalDateRange.end.toISOString().split('T')[0];
-      return protectedItems.filter(i => {
-          return i.detectedAt >= startStr && i.detectedAt <= endStr;
-      });
-  }, [protectedItems, globalDateRange]);
+      return protectedItems.filter(i => i.detectedAt >= rangeBounds.startStr && i.detectedAt <= rangeBounds.endStr);
+  }, [protectedItems, rangeBounds]);
 
   const filteredPending = useMemo(() => {
-      const startStr = globalDateRange.start.toISOString().split('T')[0];
-      const endStr = globalDateRange.end.toISOString().split('T')[0];
-      return pendingItems.filter(i => {
-          return i.detectedAt >= startStr && i.detectedAt <= endStr;
-      });
-  }, [pendingItems, globalDateRange]);
+      return pendingItems.filter(i => i.detectedAt >= rangeBounds.startStr && i.detectedAt <= rangeBounds.endStr);
+  }, [pendingItems, rangeBounds]);
 
   const revenueProtected = useMemo(() => filteredProtected.reduce((acc, curr) => acc + curr.revenueLost, 0), [filteredProtected]);
   const potentialLoss = useMemo(() => filteredPending.reduce((acc, curr) => acc + curr.revenueLost, 0), [filteredPending]);
@@ -437,17 +270,10 @@ const DashboardAnalytics: React.FC = () => {
 
   // Aggregate Platform Risk from Actual Data (Detected in range)
   const platformRiskData = useMemo(() => {
-    // We analyze ALL infringements in the period for risk assessment, not just pending
-    const itemsInRange = infringements.filter(i => {
-        const startStr = globalDateRange.start.toISOString().split('T')[0];
-        const endStr = globalDateRange.end.toISOString().split('T')[0];
-        return i.detectedAt >= startStr && i.detectedAt <= endStr;
-    });
-
-    const totalLost = itemsInRange.reduce((acc, curr) => acc + curr.revenueLost, 0);
+    const totalLost = infringementsInRange.reduce((acc, curr) => acc + curr.revenueLost, 0);
     const byPlatform: Record<string, number> = {};
     
-    itemsInRange.forEach(item => {
+    infringementsInRange.forEach(item => {
         byPlatform[item.platform] = (byPlatform[item.platform] || 0) + item.revenueLost;
     });
 
@@ -465,23 +291,281 @@ const DashboardAnalytics: React.FC = () => {
         }))
         .sort((a, b) => b.value - a.value);
 
-  }, [infringements, globalDateRange]);
+  }, [infringementsInRange]);
 
   // Aggregate Map Data (Detected in range)
   const violationMapData = useMemo(() => {
-      const itemsInRange = infringements.filter(i => {
-          const startStr = globalDateRange.start.toISOString().split('T')[0];
-          const endStr = globalDateRange.end.toISOString().split('T')[0];
-          return i.detectedAt >= startStr && i.detectedAt <= endStr;
-      });
-      
       const byCountry: Record<string, number> = {};
-      itemsInRange.forEach(item => {
+      infringementsInRange.forEach(item => {
           byCountry[item.country] = (byCountry[item.country] || 0) + 1;
       });
 
       return Object.entries(byCountry).map(([country, value]) => ({ country, value }));
-  }, [infringements, globalDateRange]);
+  }, [infringementsInRange]);
+
+  const topPlatform = useMemo(() => platformRiskData[0] || null, [platformRiskData]);
+
+  const topCountry = useMemo(() => {
+    if (violationMapData.length === 0) return null;
+    return [...violationMapData].sort((a, b) => b.value - a.value)[0];
+  }, [violationMapData]);
+
+  const detectionQuality = useMemo(() => {
+    const reviewedCases = infringementsInRange.filter((item) =>
+      item.status === 'in_progress' || item.status === 'resolved' || item.status === 'rejected'
+    );
+
+    let falsePositiveCount = 0;
+    const providerStats: Record<string, { reviewed: number; falsePositives: number }> = {};
+    const platformStats: Record<string, { reviewed: number; falsePositives: number }> = {};
+
+    reviewedCases.forEach((item) => {
+      const updates = caseUpdatesByCase.get(item.id) || [];
+      const isFalsePositive = item.status === 'rejected' && updates.some((update) =>
+        update.type === 'custom' && /company dismissed case|company whitelisted trusted entity/i.test(update.message)
+      );
+
+      if (isFalsePositive) falsePositiveCount += 1;
+
+      const providerKey = (item.detectionProvider || 'unknown').toLowerCase();
+      const providerBucket = providerStats[providerKey] || { reviewed: 0, falsePositives: 0 };
+      providerBucket.reviewed += 1;
+      if (isFalsePositive) providerBucket.falsePositives += 1;
+      providerStats[providerKey] = providerBucket;
+
+      const platformBucket = platformStats[item.platform] || { reviewed: 0, falsePositives: 0 };
+      platformBucket.reviewed += 1;
+      if (isFalsePositive) platformBucket.falsePositives += 1;
+      platformStats[item.platform] = platformBucket;
+    });
+
+    const scanEventsInRange = scanEvents.filter((event) => {
+      const startedMs = Date.parse(event.startedAt);
+      return Number.isFinite(startedMs) && startedMs >= rangeBounds.startMs && startedMs <= rangeBounds.endMs;
+    });
+    const duplicatesSkipped = scanEventsInRange.reduce((sum, event) => sum + event.duplicatesSkipped, 0);
+    const duplicateDenominator = scanEventsInRange.reduce(
+      (sum, event) => sum + event.matchesFound + event.duplicatesSkipped,
+      0
+    );
+
+    const reviewedCount = reviewedCases.length;
+    const precision = reviewedCount > 0 ? (reviewedCount - falsePositiveCount) / reviewedCount : 1;
+    const falsePositiveRate = reviewedCount > 0 ? falsePositiveCount / reviewedCount : 0;
+    const duplicateRate = duplicateDenominator > 0 ? duplicatesSkipped / duplicateDenominator : 0;
+
+    const providerBreakdown = Object.entries(providerStats)
+      .map(([provider, stats]) => ({
+        provider,
+        precision: stats.reviewed > 0 ? (stats.reviewed - stats.falsePositives) / stats.reviewed : 1,
+        reviewed: stats.reviewed,
+      }))
+      .sort((a, b) => b.reviewed - a.reviewed);
+
+    const platformBreakdown = Object.entries(platformStats)
+      .map(([platform, stats]) => ({
+        platform,
+        precision: stats.reviewed > 0 ? (stats.reviewed - stats.falsePositives) / stats.reviewed : 1,
+        reviewed: stats.reviewed,
+      }))
+      .sort((a, b) => b.reviewed - a.reviewed);
+
+    return {
+      reviewedCount,
+      precision,
+      falsePositiveRate,
+      duplicateRate,
+      providerBreakdown,
+      platformBreakdown,
+      scanEventCount: scanEventsInRange.length,
+    };
+  }, [infringementsInRange, caseUpdatesByCase, scanEvents, rangeBounds]);
+
+  const enforcementQuality = useMemo(() => {
+    const candidateCases = infringementsInRange.filter((item) =>
+      item.status === 'in_progress' || item.status === 'resolved' || item.status === 'rejected'
+    );
+    const enforcedCases = candidateCases.filter((item) => {
+      const updates = caseUpdatesByCase.get(item.id) || [];
+      return updates.some((update) =>
+        update.type === 'custom' && /company approved enforcement|enforcement handoff package prepared/i.test(update.message)
+      ) || item.status === 'in_progress';
+    });
+
+    const closedCases = enforcedCases.filter((item) => item.status === 'resolved' || item.status === 'rejected');
+    const resolvedCount = closedCases.filter((item) => item.status === 'resolved').length;
+    const rejectedCount = closedCases.filter((item) => item.status === 'rejected').length;
+    const appealCount = enforcedCases.filter((item) => {
+      const updates = caseUpdatesByCase.get(item.id) || [];
+      return updates.some((update) =>
+        update.type === 'escalated' && /counter[- ]notice|appeal|legal challenge/i.test(update.message)
+      );
+    }).length;
+
+    const durationsHours = closedCases
+      .map((item) => takedownRequests.find((request) => request.caseId === item.id))
+      .filter((request): request is TakedownRequest => Boolean(request))
+      .map((request) => {
+        const start = Date.parse(request.requestedAt || '');
+        const end = Date.parse(request.processedAt || '');
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+        return (end - start) / (1000 * 60 * 60);
+      })
+      .filter((value): value is number => value !== null);
+
+    const averageResolutionHours = durationsHours.length > 0
+      ? durationsHours.reduce((sum, value) => sum + value, 0) / durationsHours.length
+      : 0;
+
+    const byPlatform: Record<string, { closed: number; resolved: number }> = {};
+    closedCases.forEach((item) => {
+      const bucket = byPlatform[item.platform] || { closed: 0, resolved: 0 };
+      bucket.closed += 1;
+      if (item.status === 'resolved') bucket.resolved += 1;
+      byPlatform[item.platform] = bucket;
+    });
+
+    return {
+      enforcedCount: enforcedCases.length,
+      closedCount: closedCases.length,
+      successRate: closedCases.length > 0 ? resolvedCount / closedCases.length : 0,
+      rejectionRate: closedCases.length > 0 ? rejectedCount / closedCases.length : 0,
+      appealRate: enforcedCases.length > 0 ? appealCount / enforcedCases.length : 0,
+      averageResolutionHours,
+      platformSuccess: Object.entries(byPlatform)
+        .map(([platform, stats]) => ({
+          platform,
+          successRate: stats.closed > 0 ? stats.resolved / stats.closed : 0,
+          closed: stats.closed,
+        }))
+        .sort((a, b) => b.closed - a.closed),
+    };
+  }, [infringementsInRange, caseUpdatesByCase, takedownRequests]);
+
+  const qualityRegressions = useMemo(() => {
+    const currentWindowMs = Math.max(24 * 60 * 60 * 1000, rangeBounds.endMs - rangeBounds.startMs);
+    const previousEnd = rangeBounds.startMs - 1;
+    const previousStart = previousEnd - currentWindowMs;
+    const previousStartStr = new Date(previousStart).toISOString().split('T')[0];
+    const previousEndStr = new Date(previousEnd).toISOString().split('T')[0];
+
+    const previousCases = infringements.filter((item) =>
+      item.detectedAt >= previousStartStr && item.detectedAt <= previousEndStr
+    );
+
+    const previousReviewed = previousCases.filter((item) =>
+      item.status === 'in_progress' || item.status === 'resolved' || item.status === 'rejected'
+    );
+    const previousFalsePositives = previousReviewed.filter((item) => {
+      if (item.status !== 'rejected') return false;
+      const updates = caseUpdatesByCase.get(item.id) || [];
+      return updates.some((update) =>
+        update.type === 'custom' && /company dismissed case|company whitelisted trusted entity/i.test(update.message)
+      );
+    }).length;
+
+    const previousPrecision = previousReviewed.length > 0
+      ? (previousReviewed.length - previousFalsePositives) / previousReviewed.length
+      : detectionQuality.precision;
+
+    const previousClosed = previousCases.filter((item) =>
+      item.status === 'resolved' || item.status === 'rejected'
+    );
+    const previousResolved = previousClosed.filter((item) => item.status === 'resolved').length;
+    const previousSuccessRate = previousClosed.length > 0
+      ? previousResolved / previousClosed.length
+      : enforcementQuality.successRate;
+
+    return {
+      precisionDelta: detectionQuality.precision - previousPrecision,
+      successDelta: enforcementQuality.successRate - previousSuccessRate,
+    };
+  }, [
+    rangeBounds,
+    infringements,
+    caseUpdatesByCase,
+    detectionQuality.precision,
+    enforcementQuality.successRate,
+  ]);
+
+  const legalRiskSignals = useMemo(() => {
+    const signals: Array<{ severity: 'critical' | 'warning'; title: string; detail: string }> = [];
+
+    const counterNoticeCases = takedownRequests.filter((request) =>
+      (request.updates || []).some((update) =>
+        update.type === 'escalated' && /counter[- ]notice|appeal|legal challenge/i.test(update.message)
+      )
+    );
+    if (counterNoticeCases.length > 0) {
+      signals.push({
+        severity: 'critical',
+        title: 'Counter-notice escalation',
+        detail: `${counterNoticeCases.length} case(s) require immediate lawyer review.`,
+      });
+    }
+
+    if (detectionQuality.reviewedCount >= 10 && detectionQuality.precision < 0.9) {
+      signals.push({
+        severity: 'critical',
+        title: 'Precision below legal gate',
+        detail: `Current precision is ${(detectionQuality.precision * 100).toFixed(1)}%, below the 90% safety gate.`,
+      });
+    }
+
+    if (detectionQuality.duplicateRate > 0.05) {
+      signals.push({
+        severity: 'warning',
+        title: 'Duplicate pressure elevated',
+        detail: `Duplicate skip rate is ${(detectionQuality.duplicateRate * 100).toFixed(1)}% in this window.`,
+      });
+    }
+
+    if (enforcementQuality.enforcedCount >= 5 && enforcementQuality.appealRate > 0.2) {
+      signals.push({
+        severity: 'warning',
+        title: 'Appeal rate elevated',
+        detail: `Appeals/counter-notices are ${(enforcementQuality.appealRate * 100).toFixed(1)}% of enforced cases.`,
+      });
+    }
+
+    return signals;
+  }, [takedownRequests, detectionQuality, enforcementQuality]);
+
+  const recurrenceAnalytics = useMemo(() => {
+    const relistingEvents = takedownRequests.reduce((count, request) => {
+      const updates = request.updates || [];
+      return count + updates.filter((update) =>
+        update.type === 'custom' && /relisting detected|re-list/i.test(update.message)
+      ).length;
+    }, 0);
+
+    const cohortMap = new Map<string, number>();
+    infringementsInRange.forEach((item) => {
+      const sellerKey = (item.sellerName || '').trim().toLowerCase();
+      const domainKey = (() => {
+        if (!item.infringingUrl) return '';
+        try {
+          return new URL(item.infringingUrl).hostname.toLowerCase();
+        } catch {
+          return '';
+        }
+      })();
+      const cohortKey = sellerKey || domainKey;
+      if (!cohortKey) return;
+      cohortMap.set(cohortKey, (cohortMap.get(cohortKey) || 0) + 1);
+    });
+
+    const repeatCohorts = [...cohortMap.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([cohort, count]) => ({ cohort, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      relistingEvents,
+      relistingRate: infringementsInRange.length > 0 ? relistingEvents / infringementsInRange.length : 0,
+      repeatCohorts,
+    };
+  }, [takedownRequests, infringementsInRange]);
 
 
   // Helper to generate chart data
@@ -565,100 +649,6 @@ const DashboardAnalytics: React.FC = () => {
   }, [infringements]);
 
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
-
-  const buildAssistantReply = (question: string) => {
-    const normalized = question.toLowerCase();
-    const topPlatform = platformRiskData[0];
-    const topCountry = [...violationMapData].sort((a, b) => b.value - a.value)[0];
-
-    if (normalized.includes('platform')) {
-      if (!topPlatform) {
-        return `No platform risk data is available for **${globalDateRange.label}** yet.`;
-      }
-      return [
-        `Top risk platform in **${globalDateRange.label}** is **${topPlatform.category}**.`,
-        `- Estimated share of loss: **${topPlatform.percentage}%**`,
-        `- Estimated revenue at risk on this platform: **$${topPlatform.value.toLocaleString()}**`,
-      ].join('\n');
-    }
-
-    if (normalized.includes('country') || normalized.includes('region')) {
-      if (!topCountry) {
-        return `No country-level data is available for **${globalDateRange.label}** yet.`;
-      }
-      return [
-        `Highest activity region in **${globalDateRange.label}** is **${topCountry.country}**.`,
-        `- Flagged violations: **${topCountry.value}**`,
-        `- Total active threats right now: **${activeInfringements}**`,
-      ].join('\n');
-    }
-
-    if (normalized.includes('loss') || normalized.includes('revenue')) {
-      return [
-        `Revenue snapshot for **${globalDateRange.label}**:`,
-        `- Potential revenue at risk: **$${potentialLoss.toLocaleString()}**`,
-        `- Revenue protected (resolved cases): **$${revenueProtected.toLocaleString()}**`,
-        `- Active threats: **${activeInfringements}**`,
-      ].join('\n');
-    }
-
-    return [
-      `Current summary for **${globalDateRange.label}**:`,
-      `- Active threats: **${activeInfringements}**`,
-      `- Potential loss: **$${potentialLoss.toLocaleString()}**`,
-      `- Protected revenue: **$${revenueProtected.toLocaleString()}**`,
-      topPlatform ? `- Highest-risk platform: **${topPlatform.category}** (${topPlatform.percentage}%)` : '- Highest-risk platform: **No data**',
-    ].join('\n');
-  };
-
-  const handleSendMessage = async (e?: React.FormEvent, overrideText?: string) => {
-    e?.preventDefault();
-    const textToSend = overrideText || chatInput;
-    if (!textToSend.trim() || isChatLoading) return;
-
-    setChatInput('');
-    setChatMessages(prev => [...prev, { role: 'user', text: textToSend }]);
-    setIsChatLoading(true);
-
-    try {
-        await new Promise(resolve => setTimeout(resolve, 350));
-        const text = buildAssistantReply(textToSend);
-        setChatMessages(prev => [...prev, { role: 'model', text }]);
-    } catch {
-        setChatMessages(prev => [...prev, { role: 'model', text: 'I could not generate a response right now.' }]);
-    } finally {
-        setIsChatLoading(false);
-    }
-  };
-
-  const checkScroll = () => {
-    if (suggestionsRef.current) {
-        const { scrollLeft, scrollWidth, clientWidth } = suggestionsRef.current;
-        setCanScrollLeft(scrollLeft > 0);
-        setCanScrollRight(Math.ceil(scrollLeft + clientWidth) < scrollWidth);
-    }
-  };
-
-  useEffect(() => {
-      checkScroll();
-      window.addEventListener('resize', checkScroll);
-      return () => window.removeEventListener('resize', checkScroll);
-  }, [chatInput]);
-
-  const scrollSuggestions = (direction: 'left' | 'right') => {
-    if (suggestionsRef.current) {
-        const scrollAmount = 200;
-        suggestionsRef.current.scrollBy({
-            left: direction === 'left' ? -scrollAmount : scrollAmount,
-            behavior: 'smooth'
-        });
-        setTimeout(checkScroll, 300);
-    }
-  };
-
   const getComparisonText = (rangeKey: string) => {
       switch(rangeKey) {
           case '24h': return 'vs yesterday';
@@ -671,7 +661,22 @@ const DashboardAnalytics: React.FC = () => {
       }
   };
 
-  const showSuggestions = !chatInput.trim();
+  // Country Selection Handlers
+  const handleCountrySelect = useCallback((countryCode: string, violations: InfringementItem[]) => {
+    setSelectedCountry(countryCode);
+    setSelectedCountryViolations(violations);
+    setIsCountryPanelOpen(true);
+  }, []);
+
+  const handleClosePanel = useCallback(() => {
+    setIsCountryPanelOpen(false);
+    setTimeout(() => setSelectedCountry(null), 200);
+  }, []);
+
+  const openDetail = useCallback((item: InfringementItem) => {
+    setSelectedItem(item);
+    setIsDetailOpen(true);
+  }, []);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -683,7 +688,7 @@ const DashboardAnalytics: React.FC = () => {
          </div>
          <div className="flex items-center gap-2">
             <DateRangeSelector selected={globalDateRange} onSelect={setGlobalDateRange} />
-            <button className="p-2 border border-border rounded-none text-secondary hover:text-primary hover:bg-surface transition-colors bg-background">
+            <button className="p-2 border border-border rounded-lg text-secondary hover:text-primary hover:bg-surface transition-colors bg-background">
                 <MoreHorizontal size={16} />
             </button>
          </div>
@@ -849,7 +854,12 @@ const DashboardAnalytics: React.FC = () => {
             }
          >
             <div className="w-full h-full min-h-[250px] mt-2">
-                <DottedMap data={violationMapData} />
+                <WorldMap
+                  data={violationMapData}
+                  infringements={infringementsInRange}
+                  onCountrySelect={handleCountrySelect}
+                  selectedCountry={selectedCountry || undefined}
+                />
             </div>
          </BentoCard>
 
@@ -909,11 +919,11 @@ const DashboardAnalytics: React.FC = () => {
                {platformRiskData.map((item) => (
                   <div key={item.category} className="flex items-center justify-between text-xs group">
                      <div className="flex items-center gap-3 w-28 shrink-0">
-                        <div className="w-2 h-2 rounded-none" style={{ backgroundColor: item.color }}></div>
+                        <div className="w-2 h-2 rounded-lg" style={{ backgroundColor: item.color }}></div>
                         <span className="text-secondary group-hover:text-primary transition-colors truncate">{item.category}</span>
                      </div>
-                     <div className="flex-1 h-1 bg-surface rounded-none mx-2 overflow-hidden">
-                         <div className="h-full rounded-none" style={{ width: `${item.percentage}%`, backgroundColor: 'rgb(var(--primary))' }}></div>
+                     <div className="flex-1 h-1 bg-surface rounded-lg mx-2 overflow-hidden">
+                         <div className="h-full rounded-lg" style={{ width: `${item.percentage}%`, backgroundColor: 'rgb(var(--primary))' }}></div>
                      </div>
                      <span className="text-secondary font-mono w-6 text-right">{item.percentage}%</span>
                   </div>
@@ -921,119 +931,182 @@ const DashboardAnalytics: React.FC = () => {
             </div>
          </BentoCard>
 
-         {/* Card 7: Assistant (Full Width Bottom) */}
-         <BentoCard title="Assistant" className="md:col-span-full h-[350px] flex flex-col border border-border shadow-lg" noPadding={true}>
-            <div className="flex-1 flex flex-col min-h-0 bg-surface/40">
-                {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto space-y-4 p-4">
-                    {chatMessages.map((msg, idx) => (
-                        <div key={idx} className="flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                            <div className="shrink-0 mt-0.5">
-                                {msg.role === 'user' ? (
-                                    <div className="w-6 h-6 rounded-full overflow-hidden border border-zinc-700">
-                                         <img src="https://i.pravatar.cc/150?u=a042581f4e29026704d" alt="User" className="w-full h-full object-cover grayscale" />
-                                    </div>
-                                ) : (
-                                    <Sparkles size={18} className="text-primary fill-primary" />
-                                )}
-                            </div>
-                            <div className="flex-1">
-                                <div className={`text-sm ${msg.role === 'user' ? 'text-primary font-mono' : 'text-primary/90'}`}>
-                                    {msg.role === 'user' ? (
-                                        msg.text
-                                    ) : (
-                                        <FormattedText text={msg.text} />
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                    {isChatLoading && (
-                        <div className="flex gap-4 px-1">
-                             <Sparkles size={18} className="text-primary/50 animate-pulse" />
-                             <div className="flex gap-1 mt-2">
-                                <span className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                                <span className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                                <span className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                             </div>
-                        </div>
-                    )}
-                    <div ref={chatEndRef} />
-                </div>
-
-                {/* Suggestions Area */}
-                {showSuggestions && (
-                    <div className="px-0 pb-2 bg-surface/40 relative group/suggestions">
-                        {/* Left Arrow with Fade */}
-                        {canScrollLeft && (
-                            <div className="absolute left-0 top-0 bottom-2 w-12 bg-gradient-to-r from-surface/80 via-surface/50 to-transparent z-10 flex items-center justify-start pl-2">
-                                <button 
-                                    onClick={() => scrollSuggestions('left')}
-                                    className="p-1 text-secondary hover:text-primary transition-all"
-                                >
-                                    <ChevronLeft size={14} />
-                                </button>
-                            </div>
-                        )}
-
-                        <div 
-                            ref={suggestionsRef}
-                            onScroll={checkScroll}
-                            className="flex gap-2 overflow-x-auto [&::-webkit-scrollbar]:hidden py-1 px-4 scroll-smooth relative"
-                            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                        >
-                            {SUGGESTIONS.map((suggestion) => (
-                                <button
-                                    key={suggestion}
-                                    onClick={() => handleSendMessage(undefined, suggestion)}
-                                    disabled={isChatLoading}
-                                    className="shrink-0 text-[10px] text-secondary border border-border bg-background px-3 py-1.5 rounded-none hover:bg-surface hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                                >
-                                    {suggestion}
-                                </button>
-                            ))}
-                            {/* Spacer for right fade */}
-                            <div className="w-4 shrink-0"></div>
-                        </div>
-
-                        {/* Right Arrow with Fade */}
-                        {canScrollRight && (
-                            <div className="absolute right-0 top-0 bottom-2 w-12 bg-gradient-to-l from-surface/80 via-surface/50 to-transparent z-10 flex items-center justify-end pr-2">
-                                <button 
-                                    onClick={() => scrollSuggestions('right')}
-                                    className="p-1 text-secondary hover:text-primary transition-all"
-                                >
-                                    <ChevronRight size={14} />
-                                </button>
-                            </div>
-                        )}
+         <BentoCard title="Detection Quality" className="md:col-span-1">
+            <div className="space-y-3 mt-1">
+               <div className="grid grid-cols-3 gap-2">
+                  <div className="border border-border rounded p-2 bg-surface/40">
+                     <p className="text-[10px] uppercase tracking-wider text-secondary">Precision</p>
+                     <p className="text-sm font-mono text-primary mt-1">{(detectionQuality.precision * 100).toFixed(1)}%</p>
+                  </div>
+                  <div className="border border-border rounded p-2 bg-surface/40">
+                     <p className="text-[10px] uppercase tracking-wider text-secondary">False+</p>
+                     <p className="text-sm font-mono text-primary mt-1">{(detectionQuality.falsePositiveRate * 100).toFixed(1)}%</p>
+                  </div>
+                  <div className="border border-border rounded p-2 bg-surface/40">
+                     <p className="text-[10px] uppercase tracking-wider text-secondary">Duplicate</p>
+                     <p className="text-sm font-mono text-primary mt-1">{(detectionQuality.duplicateRate * 100).toFixed(1)}%</p>
+                  </div>
+               </div>
+               <div className="pt-2 border-t border-border space-y-1">
+                  <p className="text-[10px] uppercase tracking-wider text-secondary">Provider Segments</p>
+                  {detectionQuality.providerBreakdown.slice(0, 3).map((segment) => (
+                    <div key={segment.provider} className="flex items-center justify-between text-xs">
+                      <span className="text-secondary truncate max-w-[60%]">{segment.provider}</span>
+                      <span className="font-mono text-primary">{(segment.precision * 100).toFixed(1)}%</span>
                     </div>
-                )}
-
-                {/* Input Area */}
-                <form onSubmit={handleSendMessage} className="relative border-t border-border p-4 bg-background">
-                    <div className="relative flex items-center">
-                        <input 
-                            type="text" 
-                            value={chatInput}
-                            onChange={(e) => setChatInput(e.target.value)}
-                            placeholder="Ask Brandog a question..."
-                            className="w-full bg-transparent text-sm text-primary placeholder-secondary focus:outline-none py-2 pr-12 font-sans"
-                        />
-                        <button 
-                            type="submit"
-                            disabled={!chatInput.trim() || isChatLoading}
-                            className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-secondary hover:text-primary transition-colors disabled:opacity-30"
-                        >
-                            <span>Submit</span>
-                            <CornerDownLeft size={10} strokeWidth={3} />
-                        </button>
+                  ))}
+                  {detectionQuality.providerBreakdown.length === 0 && (
+                    <p className="text-xs text-secondary">No provider-segmented reviewed cases in this window.</p>
+                  )}
+               </div>
+               <div className="pt-2 border-t border-border space-y-1">
+                  <p className="text-[10px] uppercase tracking-wider text-secondary">Platform Segments</p>
+                  {detectionQuality.platformBreakdown.slice(0, 3).map((segment) => (
+                    <div key={segment.platform} className="flex items-center justify-between text-xs">
+                      <span className="text-secondary truncate max-w-[60%]">{segment.platform}</span>
+                      <span className="font-mono text-primary">{(segment.precision * 100).toFixed(1)}%</span>
                     </div>
-                </form>
+                  ))}
+                  {detectionQuality.platformBreakdown.length === 0 && (
+                    <p className="text-xs text-secondary">No platform quality data in this window.</p>
+                  )}
+               </div>
+            </div>
+         </BentoCard>
+
+         <BentoCard title="Enforcement Quality" className="md:col-span-1">
+            <div className="space-y-3 mt-1">
+               <div className="grid grid-cols-3 gap-2">
+                  <div className="border border-border rounded p-2 bg-surface/40">
+                     <p className="text-[10px] uppercase tracking-wider text-secondary">Success</p>
+                     <p className="text-sm font-mono text-primary mt-1">{(enforcementQuality.successRate * 100).toFixed(1)}%</p>
+                  </div>
+                  <div className="border border-border rounded p-2 bg-surface/40">
+                     <p className="text-[10px] uppercase tracking-wider text-secondary">Rejected</p>
+                     <p className="text-sm font-mono text-primary mt-1">{(enforcementQuality.rejectionRate * 100).toFixed(1)}%</p>
+                  </div>
+                  <div className="border border-border rounded p-2 bg-surface/40">
+                     <p className="text-[10px] uppercase tracking-wider text-secondary">Appeals</p>
+                     <p className="text-sm font-mono text-primary mt-1">{(enforcementQuality.appealRate * 100).toFixed(1)}%</p>
+                  </div>
+               </div>
+               <div className="flex items-center justify-between text-xs pt-1 border-t border-border">
+                  <span className="text-secondary">Avg resolution time</span>
+                  <span className="font-mono text-primary">{enforcementQuality.averageResolutionHours.toFixed(1)}h</span>
+               </div>
+               <div className="flex flex-wrap gap-2">
+                  {qualityRegressions.precisionDelta <= -0.1 && (
+                    <span className="text-[10px] uppercase tracking-wider px-2 py-1 border border-red-500/30 text-red-400 bg-red-500/10">
+                      Precision regression
+                    </span>
+                  )}
+                  {qualityRegressions.successDelta <= -0.1 && (
+                    <span className="text-[10px] uppercase tracking-wider px-2 py-1 border border-amber-500/30 text-amber-400 bg-amber-500/10">
+                      Enforcement regression
+                    </span>
+                  )}
+                  {qualityRegressions.precisionDelta > -0.1 && qualityRegressions.successDelta > -0.1 && (
+                    <span className="text-[10px] uppercase tracking-wider px-2 py-1 border border-emerald-500/30 text-emerald-400 bg-emerald-500/10">
+                      Stable trends
+                    </span>
+                  )}
+               </div>
+               <div className="pt-2 border-t border-border space-y-1">
+                  <p className="text-[10px] uppercase tracking-wider text-secondary">Platform Outcomes</p>
+                  {enforcementQuality.platformSuccess.slice(0, 3).map((segment) => (
+                    <div key={segment.platform} className="flex items-center justify-between text-xs">
+                      <span className="text-secondary truncate max-w-[60%]">{segment.platform}</span>
+                      <span className="font-mono text-primary">{(segment.successRate * 100).toFixed(1)}%</span>
+                    </div>
+                  ))}
+                  {enforcementQuality.platformSuccess.length === 0 && (
+                    <p className="text-xs text-secondary">No closed enforcement outcomes in this window.</p>
+                  )}
+               </div>
+            </div>
+         </BentoCard>
+
+         <BentoCard title="Legal Safety Gates" className="md:col-span-1">
+            <div className="space-y-2 mt-1">
+               <div className="text-[10px] uppercase tracking-wider text-secondary">
+                  Runbook Routing: false-positive spike, appeal handling, policy/legal ambiguity
+               </div>
+               {legalRiskSignals.length === 0 && (
+                 <div className="border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs rounded p-2">
+                   No active legal-risk triggers in this period.
+                 </div>
+               )}
+               {legalRiskSignals.map((signal, index) => (
+                 <div
+                   key={`${signal.title}-${index}`}
+                   className={`border rounded p-2 text-xs ${
+                     signal.severity === 'critical'
+                       ? 'border-red-500/30 bg-red-500/10 text-red-300'
+                       : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                   }`}
+                 >
+                   <p className="font-medium">{signal.title}</p>
+                   <p className="mt-1">{signal.detail}</p>
+                 </div>
+               ))}
+               <div className="pt-2 border-t border-border text-[10px] text-secondary">
+                 Gate thresholds: precision at least 90%, duplicate at most 5%, appeal at most 20%.
+               </div>
+            </div>
+         </BentoCard>
+
+         <BentoCard title="Recurrence Loop" className="md:col-span-1">
+            <div className="space-y-3 mt-1">
+               <div className="grid grid-cols-2 gap-2">
+                  <div className="border border-border rounded p-2 bg-surface/40">
+                    <p className="text-[10px] uppercase tracking-wider text-secondary">Re-list Events</p>
+                    <p className="text-sm font-mono text-primary mt-1">{recurrenceAnalytics.relistingEvents}</p>
+                  </div>
+                  <div className="border border-border rounded p-2 bg-surface/40">
+                    <p className="text-[10px] uppercase tracking-wider text-secondary">Re-list Rate</p>
+                    <p className="text-sm font-mono text-primary mt-1">{(recurrenceAnalytics.relistingRate * 100).toFixed(1)}%</p>
+                  </div>
+               </div>
+               <div className="pt-2 border-t border-border space-y-1">
+                  <p className="text-[10px] uppercase tracking-wider text-secondary">Repeat Offender Cohorts</p>
+                  {recurrenceAnalytics.repeatCohorts.slice(0, 4).map((cohort) => (
+                    <div key={cohort.cohort} className="flex items-center justify-between text-xs">
+                      <span className="text-secondary truncate max-w-[70%]">{cohort.cohort}</span>
+                      <span className="font-mono text-primary">{cohort.count}</span>
+                    </div>
+                  ))}
+                  {recurrenceAnalytics.repeatCohorts.length === 0 && (
+                    <p className="text-xs text-secondary">No repeat offender cohorts in this range.</p>
+                  )}
+               </div>
             </div>
          </BentoCard>
 
       </div>
+
+      {/* Country Violations Panel */}
+      <CountryViolationsPanel
+        isOpen={isCountryPanelOpen}
+        onClose={handleClosePanel}
+        countryCode={selectedCountry || ''}
+        countryName={selectedCountry ? getCountryName(selectedCountry) : ''}
+        violations={selectedCountryViolations}
+        onViolationClick={openDetail}
+      />
+
+      {/* Case Detail Modal */}
+      {selectedItem && (
+        <CaseDetailModal
+          isOpen={isDetailOpen}
+          onClose={() => {
+            setIsDetailOpen(false);
+            setSelectedItem(null);
+          }}
+          item={selectedItem}
+          onConfirm={reportInfringement}
+          onDismiss={dismissInfringement}
+        />
+      )}
     </div>
   );
 };

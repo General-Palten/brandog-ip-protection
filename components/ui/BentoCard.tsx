@@ -18,7 +18,7 @@ const BentoCard: React.FC<BentoCardProps> = ({
   noPadding = false 
 }) => {
   return (
-    <div className={`bg-surface border border-border rounded-none flex flex-col ${className}`}>
+    <div className={`bg-surface border border-border rounded-xl shadow-sm flex flex-col ${className}`}>
       {(title || action) && (
         <div className="p-4 pb-1 flex justify-between items-start shrink-0">
           <div>

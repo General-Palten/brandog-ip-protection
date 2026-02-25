@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import BentoCard from '../ui/BentoCard';
 import Button from '../ui/Button';
 import { useDashboard } from '../../context/DashboardContext';
@@ -18,10 +18,43 @@ import {
   JobTitle, BrandRole, DashboardView, DateFormatPreference,
   PlanTier, PlanUsage, SessionInfo, TeamMember, AuditLogEntry, AuditLogActionType, AuditLogLevel
 } from '../../types';
+import { uploadAvatar, getAvatarUrl } from '../../lib/storage';
 
 interface SettingsProps {
   initialSection?: string;
 }
+
+interface RolloutPolicyState {
+  pilotEnabled: boolean;
+  cohortName: string;
+  pilotOwners: string;
+  precisionGate: number;
+  duplicateGate: number;
+  appealGate: number;
+  weeklyReviewDay: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday';
+  lastReviewAt?: string;
+  legalSignoff: boolean;
+  productSignoff: boolean;
+  goLiveApproved: boolean;
+  reviewNotes: string[];
+  updatedAt?: string;
+}
+
+const ROLLOUT_POLICY_STORAGE_KEY = 'brandog_rollout_policy_v1';
+
+const DEFAULT_ROLLOUT_POLICY: RolloutPolicyState = {
+  pilotEnabled: true,
+  cohortName: 'Pilot Cohort A',
+  pilotOwners: 'Legal + Product',
+  precisionGate: 90,
+  duplicateGate: 5,
+  appealGate: 20,
+  weeklyReviewDay: 'monday',
+  legalSignoff: false,
+  productSignoff: false,
+  goLiveApproved: false,
+  reviewNotes: [],
+};
 
 // Helper component for usage progress bars
 const UsageBar: React.FC<{ label: string; used: number; limit: number | string; unit?: string }> = ({ label, used, limit, unit = '' }) => {
@@ -80,8 +113,11 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
   const [notificationEmail, setNotificationEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [defaultDashboardView, setDefaultDashboardView] = useState<DashboardView>('overview');
-  const [dateFormat, setDateFormat] = useState<DateFormatPreference>('MM/DD/YYYY');
+  const [dateFormat, setDateFormat] = useState<DateFormatPreference>('DD/MM/YYYY');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // Notification settings state
   const [highSeverityEnabled, setHighSeverityEnabled] = useState(true);
@@ -128,6 +164,8 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
     storageUsedGB: 2.4,
     storageLimitGB: 10,
   });
+  const [rolloutPolicy, setRolloutPolicy] = useState<RolloutPolicyState>(DEFAULT_ROLLOUT_POLICY);
+  const [rolloutReviewInput, setRolloutReviewInput] = useState('');
 
   // Logs state
   const [logSearchQuery, setLogSearchQuery] = useState('');
@@ -163,6 +201,78 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
     setLastName(nameParts.slice(1).join(' ') || '');
   }, [profile, user]);
 
+  useEffect(() => {
+    const raw = localStorage.getItem(ROLLOUT_POLICY_STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as RolloutPolicyState;
+      if (!parsed || typeof parsed !== 'object') return;
+      setRolloutPolicy({
+        ...DEFAULT_ROLLOUT_POLICY,
+        ...parsed,
+        reviewNotes: Array.isArray(parsed.reviewNotes) ? parsed.reviewNotes : [],
+      });
+    } catch {
+      setRolloutPolicy(DEFAULT_ROLLOUT_POLICY);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(ROLLOUT_POLICY_STORAGE_KEY, JSON.stringify(rolloutPolicy));
+  }, [rolloutPolicy]);
+
+  // Initialize avatar URL from profile
+  useEffect(() => {
+    if (profile?.avatarUrl) {
+      setAvatarUrl(getAvatarUrl(profile.avatarUrl));
+    }
+  }, [profile?.avatarUrl]);
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      addNotification('error', 'Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      addNotification('error', 'Image must be less than 5MB');
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    try {
+      const { path, error: uploadError } = await uploadAvatar(user.id, file);
+      if (uploadError) {
+        addNotification('error', uploadError.message || 'Failed to upload avatar');
+        return;
+      }
+
+      // Update profile with new avatar path
+      const { error: profileError } = await updateProfile({ avatarUrl: path });
+      if (profileError) {
+        addNotification('error', profileError.message || 'Failed to update profile');
+        return;
+      }
+
+      // Update local state with new URL
+      setAvatarUrl(getAvatarUrl(path));
+      addNotification('success', 'Profile picture updated');
+    } catch {
+      addNotification('error', 'Failed to upload profile picture');
+    } finally {
+      setIsUploadingAvatar(false);
+      // Reset input so the same file can be selected again
+      if (avatarInputRef.current) {
+        avatarInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleSaveProfile = async () => {
     const fullName = `${firstName} ${lastName}`.trim();
     if (!fullName) {
@@ -195,6 +305,33 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
 
   const handleExportLogs = () => {
     addNotification('success', `Exporting logs as ${exportFormat.toUpperCase()}...`);
+  };
+
+  const handleSaveRolloutPolicy = () => {
+    const next = {
+      ...rolloutPolicy,
+      updatedAt: new Date().toISOString(),
+    };
+    setRolloutPolicy(next);
+    addNotification('success', 'Rollout policy saved');
+  };
+
+  const handleAddRolloutReview = () => {
+    const note = rolloutReviewInput.trim();
+    if (!note) {
+      addNotification('error', 'Add a short review note before recording weekly review');
+      return;
+    }
+
+    const timestamp = new Date().toISOString();
+    setRolloutPolicy((prev) => ({
+      ...prev,
+      lastReviewAt: timestamp,
+      updatedAt: timestamp,
+      reviewNotes: [`${new Date(timestamp).toLocaleString()}: ${note}`, ...prev.reviewNotes].slice(0, 8),
+    }));
+    setRolloutReviewInput('');
+    addNotification('success', 'Weekly rollout review logged');
   };
 
   // Filter logs based on current filters
@@ -290,12 +427,27 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
                     <BentoCard title="Account Profile">
                         <div className="flex flex-col md:flex-row gap-8 items-start mt-4">
-                            <div className="relative group cursor-pointer">
+                            <div className="relative group cursor-pointer" onClick={() => !isUploadingAvatar && avatarInputRef.current?.click()}>
+                                <input
+                                    ref={avatarInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleAvatarChange}
+                                    className="hidden"
+                                />
                                 <div className="w-24 h-24 bg-surface border border-border rounded-full overflow-hidden">
-                                    <img src="https://i.pravatar.cc/150?u=a042581f4e29026704d" alt="Profile" className="w-full h-full object-cover" />
+                                    <img
+                                        src={avatarUrl || 'https://i.pravatar.cc/150?u=a042581f4e29026704d'}
+                                        alt="Profile"
+                                        className="w-full h-full object-cover"
+                                    />
                                 </div>
-                                <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Camera className="text-white" size={24} />
+                                <div className={`absolute inset-0 bg-black/50 rounded-full flex items-center justify-center transition-opacity ${isUploadingAvatar ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                    {isUploadingAvatar ? (
+                                        <Loader2 className="text-white animate-spin" size={24} />
+                                    ) : (
+                                        <Camera className="text-white" size={24} />
+                                    )}
                                 </div>
                             </div>
                             <div className="flex-1 space-y-4 w-full">
@@ -307,7 +459,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                           value={firstName}
                                           onChange={(e) => setFirstName(e.target.value)}
                                           placeholder="Enter your first name"
-                                          className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
                                         />
                                     </div>
                                     <div>
@@ -317,7 +469,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                           value={lastName}
                                           onChange={(e) => setLastName(e.target.value)}
                                           placeholder="Enter your last name"
-                                          className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
                                         />
                                     </div>
                                 </div>
@@ -327,7 +479,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                       type="email"
                                       value={user?.email || ''}
                                       disabled
-                                      className="w-full px-3 py-2 bg-surface border border-border rounded-none text-sm text-secondary cursor-not-allowed"
+                                      className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-secondary cursor-not-allowed"
                                     />
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -336,7 +488,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                         <select
                                           value={jobTitle}
                                           onChange={(e) => setJobTitle(e.target.value as JobTitle)}
-                                          className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
                                         >
                                           {Object.entries(JOB_TITLES).map(([key, label]) => (
                                             <option key={key} value={key}>{label}</option>
@@ -348,7 +500,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                         <select
                                           value={timezone}
                                           onChange={(e) => setTimezone(e.target.value)}
-                                          className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
                                         >
                                           {TIMEZONES.map((tz) => (
                                             <option key={tz.value} value={tz.value}>{tz.label}</option>
@@ -363,58 +515,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                       value={bio}
                                       onChange={(e) => setBio(e.target.value)}
                                       placeholder="Tell us about yourself..."
-                                      className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none resize-none"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    </BentoCard>
-
-                    <BentoCard title="Brand Context">
-                        <div className="mt-4 space-y-4">
-                            <div>
-                                <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-3">Primary Brand Role</label>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                    {Object.entries(BRAND_ROLES).map(([key, label]) => (
-                                        <button
-                                            key={key}
-                                            onClick={() => setBrandRole(key as BrandRole)}
-                                            className={`px-3 py-2 text-xs border transition-colors ${
-                                                brandRole === key
-                                                    ? 'bg-primary text-inverse border-primary'
-                                                    : 'bg-background text-secondary border-border hover:text-primary'
-                                            }`}
-                                        >
-                                            {label}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">
-                                        <Mail size={12} className="inline mr-1" />
-                                        Secondary Email for Alerts
-                                    </label>
-                                    <input
-                                      type="email"
-                                      value={notificationEmail}
-                                      onChange={(e) => setNotificationEmail(e.target.value)}
-                                      placeholder="alerts@company.com"
-                                      className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">
-                                        <Phone size={12} className="inline mr-1" />
-                                        Phone for SMS Alerts (Optional)
-                                    </label>
-                                    <input
-                                      type="tel"
-                                      value={phoneNumber}
-                                      onChange={(e) => setPhoneNumber(e.target.value)}
-                                      placeholder="+1 (555) 000-0000"
-                                      className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none resize-none"
                                     />
                                 </div>
                             </div>
@@ -675,7 +776,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                     value={slackWebhookUrl}
                                     onChange={(e) => setSlackWebhookUrl(e.target.value)}
                                     placeholder="https://hooks.slack.com/services/..."
-                                    className="w-full px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none font-mono"
+                                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none font-mono"
                                 />
                             </div>
                             <div className="flex items-center justify-between py-3">
@@ -703,7 +804,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                         <div className="mt-4">
                             <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-4">
-                                    <div className={`w-10 h-10 flex items-center justify-center rounded-none border ${twoFactorEnabled ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-surface text-secondary border-border'}`}>
+                                    <div className={`w-10 h-10 flex items-center justify-center rounded-lg border ${twoFactorEnabled ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-surface text-secondary border-border'}`}>
                                         <Smartphone size={20} />
                                     </div>
                                     <div>
@@ -723,7 +824,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                 <input
                                     type="tel"
                                     placeholder="+1 (555) 000-0000"
-                                    className="w-full md:w-1/2 px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                    className="w-full md:w-1/2 px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
                                 />
                             </div>
                         </div>
@@ -977,6 +1078,155 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                             </div>
                         )}
                     </BentoCard>
+
+                    <BentoCard title="Controlled Rollout Governance">
+                        <div className="mt-4 space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Pilot Cohort</label>
+                                    <input
+                                      type="text"
+                                      value={rolloutPolicy.cohortName}
+                                      onChange={(e) => setRolloutPolicy(prev => ({ ...prev, cohortName: e.target.value }))}
+                                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Owners</label>
+                                    <input
+                                      type="text"
+                                      value={rolloutPolicy.pilotOwners}
+                                      onChange={(e) => setRolloutPolicy(prev => ({ ...prev, pilotOwners: e.target.value }))}
+                                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Precision Gate %</label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      value={rolloutPolicy.precisionGate}
+                                      onChange={(e) => setRolloutPolicy(prev => ({ ...prev, precisionGate: Number(e.target.value || 0) }))}
+                                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Duplicate Gate %</label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      value={rolloutPolicy.duplicateGate}
+                                      onChange={(e) => setRolloutPolicy(prev => ({ ...prev, duplicateGate: Number(e.target.value || 0) }))}
+                                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Appeal Gate %</label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      value={rolloutPolicy.appealGate}
+                                      onChange={(e) => setRolloutPolicy(prev => ({ ...prev, appealGate: Number(e.target.value || 0) }))}
+                                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border">
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-sm font-medium text-primary">Pilot Enabled</p>
+                                        <Toggle
+                                          enabled={rolloutPolicy.pilotEnabled}
+                                          onChange={(enabled) => setRolloutPolicy(prev => ({ ...prev, pilotEnabled: enabled }))}
+                                          size="sm"
+                                        />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-sm font-medium text-primary">Legal Signoff</p>
+                                        <Toggle
+                                          enabled={rolloutPolicy.legalSignoff}
+                                          onChange={(enabled) => setRolloutPolicy(prev => ({ ...prev, legalSignoff: enabled }))}
+                                          size="sm"
+                                        />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-sm font-medium text-primary">Product Signoff</p>
+                                        <Toggle
+                                          enabled={rolloutPolicy.productSignoff}
+                                          onChange={(enabled) => setRolloutPolicy(prev => ({ ...prev, productSignoff: enabled }))}
+                                          size="sm"
+                                        />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-sm font-medium text-primary">GA Approved</p>
+                                        <Toggle
+                                          enabled={rolloutPolicy.goLiveApproved}
+                                          onChange={(enabled) => setRolloutPolicy(prev => ({ ...prev, goLiveApproved: enabled }))}
+                                          size="sm"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Weekly Review Day</label>
+                                        <select
+                                          value={rolloutPolicy.weeklyReviewDay}
+                                          onChange={(e) => setRolloutPolicy(prev => ({ ...prev, weeklyReviewDay: e.target.value as RolloutPolicyState['weeklyReviewDay'] }))}
+                                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
+                                        >
+                                          <option value="monday">Monday</option>
+                                          <option value="tuesday">Tuesday</option>
+                                          <option value="wednesday">Wednesday</option>
+                                          <option value="thursday">Thursday</option>
+                                          <option value="friday">Friday</option>
+                                        </select>
+                                    </div>
+                                    <div className="text-xs text-secondary">
+                                      Last weekly review: {rolloutPolicy.lastReviewAt ? new Date(rolloutPolicy.lastReviewAt).toLocaleString() : 'Not recorded'}
+                                    </div>
+                                    <div className="text-xs text-secondary">
+                                      Last policy update: {rolloutPolicy.updatedAt ? new Date(rolloutPolicy.updatedAt).toLocaleString() : 'Not recorded'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-border space-y-2">
+                                <label className="block text-xs font-medium text-secondary uppercase tracking-wider">Weekly Review Notes</label>
+                                <textarea
+                                  value={rolloutReviewInput}
+                                  onChange={(e) => setRolloutReviewInput(e.target.value)}
+                                  placeholder="Record quality/legal/ops review outcomes..."
+                                  className="w-full h-20 px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
+                                />
+                                <div className="flex flex-wrap gap-2">
+                                    <Button variant="secondary" size="sm" onClick={handleAddRolloutReview}>
+                                      Record Weekly Review
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={handleSaveRolloutPolicy}>
+                                      Save Rollout Policy
+                                    </Button>
+                                </div>
+                                <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                                  {rolloutPolicy.reviewNotes.length === 0 && (
+                                    <p className="text-xs text-secondary">No review notes recorded yet.</p>
+                                  )}
+                                  {rolloutPolicy.reviewNotes.map((note, index) => (
+                                    <p key={`${note}-${index}`} className="text-xs text-primary bg-surface border border-border px-2 py-1 rounded">
+                                      {note}
+                                    </p>
+                                  ))}
+                                </div>
+                            </div>
+                        </div>
+                    </BentoCard>
                 </div>
             )}
 
@@ -1040,14 +1290,14 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                             value={logSearchQuery}
                                             onChange={(e) => setLogSearchQuery(e.target.value)}
                                             placeholder="Search logs..."
-                                            className="w-full pl-9 pr-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                            className="w-full pl-9 pr-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
                                         />
                                     </div>
                                 </div>
                                 <select
                                     value={logDateRange}
                                     onChange={(e) => setLogDateRange(e.target.value)}
-                                    className="px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                    className="px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
                                 >
                                     <option value="7">Last 7 days</option>
                                     <option value="30">Last 30 days</option>
@@ -1149,7 +1399,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                     <select
                                         value={exportFormat}
                                         onChange={(e) => setExportFormat(e.target.value)}
-                                        className="px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                        className="px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
                                     >
                                         <option value="csv">CSV</option>
                                         <option value="json">JSON</option>
@@ -1159,7 +1409,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                 <div>
                                     <label className="block text-xs font-medium text-secondary uppercase tracking-wider mb-2">Date Range</label>
                                     <select
-                                        className="px-3 py-2 bg-background border border-border rounded-none text-sm text-primary focus:border-primary outline-none"
+                                        className="px-3 py-2 bg-background border border-border rounded-lg text-sm text-primary focus:border-primary outline-none"
                                     >
                                         <option>Last 7 days</option>
                                         <option>Last 30 days</option>

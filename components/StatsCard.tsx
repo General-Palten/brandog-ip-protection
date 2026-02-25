@@ -13,7 +13,7 @@ interface StatsCardProps {
 
 const StatsCard: React.FC<StatsCardProps> = ({ icon: Icon, title, value, action }) => {
   return (
-    <div className="bg-surface border border-border rounded-none overflow-hidden flex flex-col h-full min-h-[120px] hover:border-secondary/50 transition-colors group">
+    <div className="bg-surface border border-border rounded-xl shadow-sm overflow-hidden flex flex-col h-full min-h-[120px] hover:border-secondary/50 transition-colors group">
       <div className="p-5 flex flex-col justify-between h-full">
         <div className="flex justify-between items-start">
           <div className="flex items-center gap-2 text-secondary group-hover:text-primary transition-colors">
