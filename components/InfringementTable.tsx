@@ -3,14 +3,18 @@ import { InfringementItem } from '../types';
 import { useDashboard } from '../context/DashboardContext';
 import PlatformIcon from './ui/PlatformIcon';
 import StatusBadge from './ui/StatusBadge';
-import { ImageOff, ExternalLink, MessageSquare, AlertTriangle, AlertCircle } from 'lucide-react';
+import { ImageOff, ExternalLink, MessageSquare, AlertTriangle, AlertCircle, Bell } from 'lucide-react';
+import { formatRevenueDisplay, getEffectivePriority } from '../lib/priority';
+import { needsMemberInput } from '../lib/case-status';
 
 interface InfringementTableProps {
   items: InfringementItem[];
   onRowClick: (item: InfringementItem) => void;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
 }
 
-const InfringementTable: React.FC<InfringementTableProps> = ({ items, onRowClick }) => {
+const InfringementTable: React.FC<InfringementTableProps> = ({ items, onRowClick, selectedIds, onToggleSelect }) => {
   const { getAssetURL, getUnreadUpdateCount } = useDashboard();
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
 
@@ -46,6 +50,14 @@ const InfringementTable: React.FC<InfringementTableProps> = ({ items, onRowClick
       <table className="w-full">
         <thead className="bg-surface border-b border-border">
           <tr>
+            {onToggleSelect && (
+              <th className="px-4 py-3 w-10">
+                <span className="sr-only">Select</span>
+              </th>
+            )}
+            <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider w-8">
+              <span className="sr-only">Priority</span>
+            </th>
             <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
               Infringement
             </th>
@@ -56,7 +68,7 @@ const InfringementTable: React.FC<InfringementTableProps> = ({ items, onRowClick
               Infringer Details
             </th>
             <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
-              Price
+              Revenue at Risk
             </th>
             <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
               Risk
@@ -68,13 +80,38 @@ const InfringementTable: React.FC<InfringementTableProps> = ({ items, onRowClick
             const unreadCount = getUnreadUpdateCount(item.id);
             const riskLevel = getRiskLevel(item.similarityScore, item.revenueLost);
             const imageUrl = imageUrls[item.id] || item.copycatImage || '';
+            const priority = getEffectivePriority(item);
+            const revenueDisplay = formatRevenueDisplay(item);
+            const showNeedsInput = needsMemberInput(item.status);
 
             return (
               <tr
                 key={item.id}
                 onClick={() => onRowClick(item)}
-                className="hover:bg-surface/50 transition-colors cursor-pointer"
+                className={`hover:bg-surface/50 transition-colors cursor-pointer ${selectedIds?.has(item.id) ? 'bg-primary/5' : ''}`}
               >
+                {/* Selection Checkbox */}
+                {onToggleSelect && (
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds?.has(item.id) || false}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        onToggleSelect(item.id);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 accent-primary cursor-pointer"
+                    />
+                  </td>
+                )}
+                {/* Priority Indicator */}
+                <td className="px-4 py-3">
+                  <div className={`w-2.5 h-2.5 rounded-full ${
+                    priority === 'high' ? 'bg-red-500' :
+                    priority === 'medium' ? 'bg-orange-400' : 'bg-yellow-400'
+                  }`} title={`${priority} priority`} />
+                </td>
                 {/* Infringement Column */}
                 <td className="px-4 py-3">
                   <div className="flex flex-col gap-1">
@@ -82,6 +119,12 @@ const InfringementTable: React.FC<InfringementTableProps> = ({ items, onRowClick
                       <span className="font-medium text-sm text-primary">{item.brandName}</span>
                       {item.isTrademarked && (
                         <span className="text-[9px] font-mono bg-background border border-border text-secondary px-1 py-0.5">TM</span>
+                      )}
+                      {showNeedsInput && (
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 bg-orange-500/10 border border-orange-500/30 rounded text-orange-500">
+                          <Bell size={10} />
+                          <span className="text-[10px] font-bold">Action</span>
+                        </span>
                       )}
                       {unreadCount > 0 && (
                         <span className="flex items-center gap-1 px-1.5 py-0.5 bg-blue-500/10 border border-blue-500/30 rounded text-blue-500">
@@ -139,13 +182,19 @@ const InfringementTable: React.FC<InfringementTableProps> = ({ items, onRowClick
                   </div>
                 </td>
 
-                {/* Price Column */}
+                {/* Revenue at Risk Column */}
                 <td className="px-4 py-3">
                   <div className="flex flex-col gap-1">
-                    <span className="font-mono text-sm text-primary">
-                      ${item.revenueLost.toLocaleString()}
+                    <span className={`font-mono text-sm px-2 py-0.5 rounded w-fit ${
+                      revenueDisplay.severity === 'high' ? 'text-red-500 bg-red-500/10' :
+                      revenueDisplay.severity === 'medium' ? 'text-orange-500 bg-orange-500/10' :
+                      'text-yellow-600 bg-yellow-500/10'
+                    }`}>
+                      {revenueDisplay.text}
                     </span>
-                    <span className="text-xs text-secondary">Est. loss</span>
+                    {revenueDisplay.hasDollarAmount && (
+                      <span className="text-xs text-secondary">Est. loss</span>
+                    )}
                   </div>
                 </td>
 

@@ -2,7 +2,27 @@ import React from 'react';
 
 export type PlatformType = 'Meta Ads' | 'Instagram' | 'Shopify' | 'TikTok Shop' | 'Amazon' | 'AliExpress' | 'eBay' | 'Website' | 'Walmart' | 'Etsy' | 'Redbubble' | 'Printerval';
 
-export type InfringementStatus = 'detected' | 'pending_review' | 'in_progress' | 'resolved' | 'rejected';
+export type InfringementStatus =
+  | 'detected'
+  | 'pending_review'
+  | 'needs_member_input'
+  | 'in_progress'
+  | 'resolved_success'
+  | 'resolved_partial'
+  | 'resolved_failed'
+  | 'dismissed_by_member'
+  | 'dismissed_by_admin';
+
+// Priority levels for infringement cases
+export type InfringementPriority = 'high' | 'medium' | 'low';
+export type PrioritySetBy = 'member' | 'admin' | 'auto';
+
+// Dismiss reasons when member or admin dismisses a case
+export type DismissReason =
+  | 'licensed_authorized'
+  | 'not_our_product'
+  | 'insufficient_evidence'
+  | 'other';
 
 export interface TrademarkMatch {
   name: string;              // e.g., "Brand A"
@@ -22,6 +42,9 @@ export interface InfringementItem {
   revenueLost: number;
   status: InfringementStatus;
   detectedAt: string; // ISO date
+  detectionProvider?: string;
+  detectionMethod?: string;
+  sourceFingerprint?: string;
   country: string;
   // Enhanced Data
   originalAssetId?: string; // Links to PersistedAsset.id
@@ -41,10 +64,17 @@ export interface InfringementItem {
   trademarkMatches?: TrademarkMatch[]; // Trademark matches found
   analysisText?: string;          // AI analysis text
   autoTakedown?: boolean;         // Whether auto-takedown is enabled
+  // Priority and workflow fields
+  priority?: InfringementPriority;      // Case priority level
+  prioritySetBy?: PrioritySetBy;        // Who set the priority
+  dismissReason?: DismissReason;        // Reason for dismissal (if dismissed)
+  dismissReasonText?: string;           // Custom text if dismissReason is 'other'
+  retryCount?: number;                  // Number of retry attempts for failed cases
 }
 
-// Predefined status update types for lawyers
+// Predefined status update types for case workflow
 export type CaseUpdateType =
+  // Admin/lawyer actions
   | 'takedown_initiated'
   | 'platform_contacted'
   | 'dmca_sent'
@@ -53,6 +83,14 @@ export type CaseUpdateType =
   | 'escalated'
   | 'content_removed'
   | 'case_closed'
+  // New workflow types
+  | 'sent_back_to_member'    // Admin requests more info from member
+  | 'member_responded'        // Member responded to admin request
+  | 'member_withdrew'         // Member withdrew the request
+  | 'retry_requested'         // Member requested retry on failed case
+  | 'priority_changed'        // Priority was changed
+  | 'evidence_added'          // Additional evidence was added
+  | 'enforcement_requested'   // Member requested enforcement
   | 'custom';
 
 // Individual case update/message
@@ -117,6 +155,24 @@ export interface KeywordItem {
 }
 
 export type AssetScanStatus = 'pending' | 'queued' | 'scanning' | 'success' | 'failed' | 'skipped';
+
+export type ScanEventStatus = 'queued' | 'success' | 'failed' | 'skipped';
+
+export interface ScanEventItem {
+  id: string;
+  assetId: string | null;
+  provider: string;
+  status: ScanEventStatus;
+  startedAt: string;
+  finishedAt?: string;
+  matchesFound: number;
+  duplicatesSkipped: number;
+  invalidResults: number;
+  failedResults: number;
+  estimatedCostUsd?: number;
+  errorMessage?: string;
+  metadata: Record<string, unknown>;
+}
 
 // Persisted asset type (metadata only - binary data stays in IndexedDB)
 export interface PersistedAsset {

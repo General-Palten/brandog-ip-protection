@@ -4,13 +4,16 @@ import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import { DashboardProvider, useDashboard } from './context/DashboardContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { NotificationProvider } from './context/NotificationContext';
 import ToastContainer from './components/Toast';
 import CommandPalette from './components/CommandPalette';
 import CaseDetailModal from './components/CaseDetailModal';
+import AIDrawer from './components/AIDrawer';
 import AuthScreen from './components/AuthScreen';
 import OnboardingScreen from './components/OnboardingScreen';
+import NotificationBell from './components/NotificationBell';
 import { InfringementItem } from './types';
-import { Search, Sun, Moon, Bell, User, Shield, CreditCard, LogOut, Command, Building2, Scale, ArrowRight, ExternalLink, Loader2, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { User, Shield, CreditCard, LogOut, Building2, Scale, ArrowRight, Loader2 } from 'lucide-react';
 import { isSupabaseConfigured } from './lib/supabase';
 
 // Views
@@ -24,6 +27,7 @@ import DashboardAnalytics from './components/views/DashboardAnalytics';
 import ReportGenerator from './components/views/ReportGenerator';
 import Settings from './components/views/Settings';
 import AdminDashboard from './components/views/AdminDashboard';
+import EnforcingWorkspace from './components/views/EnforcingWorkspace';
 import { getBypassRole, isBypassAuthEnabled } from './lib/runtime-config';
 
 // Role Selection / Login Screen
@@ -134,19 +138,29 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
   const isAdminMode = effectiveRole === 'admin';
   const [activeSidebarTab, setActiveSidebarTab] = useState(isAdminMode ? 'admin' : 'dashboard');
   const [settingsSection, setSettingsSection] = useState('profile');
-  const { theme, toggleTheme, recentActivity, infringements, reportInfringement, dismissInfringement } = useDashboard();
+  const { infringements, reportInfringement, dismissInfringement } = useDashboard();
   const { user, profile } = useAuth();
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [selectedNotificationCase, setSelectedNotificationCase] = useState<InfringementItem | null>(null);
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+  const [isAIDrawerOpen, setIsAIDrawerOpen] = useState(false);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sidebarExpanded');
+      return saved === 'true';
+    }
+    return false;
+  });
 
   useEffect(() => {
     if (!isAdminMode && activeSidebarTab === 'admin') {
       setActiveSidebarTab('dashboard');
     }
   }, [isAdminMode, activeSidebarTab]);
+
+  // Persist sidebar state
+  useEffect(() => {
+    localStorage.setItem('sidebarExpanded', String(isSidebarExpanded));
+  }, [isSidebarExpanded]);
 
   const handleDevRoleToggle = () => {
     const currentRole = devRoleOverride || userRole;
@@ -160,28 +174,12 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
     }
   };
 
-  // Extract case ID from notification target text and find the infringement
-  const handleNotificationClick = (target: string) => {
-    // Try to extract case ID from patterns like "#mock_176", "#search_1", "Case #abc123"
-    const caseIdMatch = target.match(/#([a-zA-Z0-9_-]+)/);
-    if (caseIdMatch) {
-      const caseId = caseIdMatch[1];
-      // Find infringement that matches (could be full ID or partial)
-      const foundCase = infringements.find(inf =>
-        inf.id === caseId ||
-        inf.id.includes(caseId) ||
-        caseId.includes(inf.id.slice(0, 8))
-      );
-      if (foundCase) {
-        setSelectedNotificationCase(foundCase);
-        setIsNotificationsOpen(false);
-      }
+  // Handle notification click to open case modal
+  const handleNotificationClick = (caseId: string) => {
+    const foundCase = infringements.find(inf => inf.id === caseId);
+    if (foundCase) {
+      setSelectedNotificationCase(foundCase);
     }
-  };
-
-  // Check if notification is related to a case (clickable)
-  const isCaseRelatedNotification = (target: string) => {
-    return target.includes('#') || target.toLowerCase().includes('case');
   };
 
   const handleProfileNavigation = (section: string) => {
@@ -197,38 +195,30 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
         setActiveTab={setActiveSidebarTab}
         isAdminMode={isAdminMode}
         isExpanded={isSidebarExpanded}
+        onToggleExpanded={() => setIsSidebarExpanded(!isSidebarExpanded)}
       />
       
       {/* Global Command Palette */}
       <CommandPalette navigate={setActiveSidebarTab} />
       
       {/* Main Content Area */}
-      <div className={`flex-1 flex flex-col min-h-screen relative transition-all duration-300 ${isSidebarExpanded ? 'ml-56' : 'ml-16'}`}>
+      <div className={`flex-1 flex flex-col min-h-screen relative transition-all duration-300 ${isSidebarExpanded ? 'ml-64' : 'ml-16'} ${isAIDrawerOpen ? 'mr-[380px]' : 'mr-0'}`}>
         
         {/* Top Bar - Solid background to prevent transparency on scroll */}
         <header className="sticky top-0 z-40 bg-background border-b border-border px-6 py-4 flex items-center justify-between">
-           {/* Left: Sidebar Toggle + Search */}
+           {/* Left: Page Title */}
            <div className="flex items-center gap-4 flex-1">
-              {/* Sidebar Toggle Button */}
-              <button
-                onClick={() => setIsSidebarExpanded(!isSidebarExpanded)}
-                className="p-2 text-secondary hover:text-primary hover:bg-surface border border-border rounded-none transition-colors"
-                title={isSidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-              >
-                {isSidebarExpanded ? <PanelLeftClose size={18} /> : <PanelLeft size={18} />}
-              </button>
-
-              <div
-                className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-surface border border-border rounded-none text-secondary w-full max-w-sm group focus-within:border-primary/50 focus-within:text-primary transition-colors cursor-text"
-                onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
-              >
-                  <Search size={14} />
-                  <span className="text-sm text-secondary/70">Search...</span>
-                  <div className="flex gap-1 ml-auto">
-                    <span className="text-[10px] bg-background border border-border px-1.5 rounded-none text-secondary/70 font-mono flex items-center">
-                        <Command size={8} className="mr-0.5"/>K
-                    </span>
-                  </div>
+              {/* Page Title */}
+              <div>
+                <h1 className="text-lg font-medium text-primary capitalize">
+                  {activeSidebarTab === 'search' ? 'Infringements' :
+                   activeSidebarTab === 'enforcing' ? 'Enforcing' :
+                   activeSidebarTab === 'takedowns' ? 'Takedowns' :
+                   activeSidebarTab === 'report-bad' ? 'Takedown Requests' :
+                   activeSidebarTab === 'report-gen' ? 'Report Generator' :
+                   activeSidebarTab === 'docs' ? 'IP Documents' :
+                   activeSidebarTab}
+                </h1>
               </div>
            </div>
 
@@ -251,89 +241,13 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
                 </button>
               )}
 
-              {/* Notification Bell with Dropdown */}
-              <div className="relative">
-                  <button 
-                    onClick={() => {
-                        setIsNotificationsOpen(!isNotificationsOpen);
-                        if(isNotificationsOpen === false) {
-                            setHasUnreadNotifications(false);
-                        }
-                    }}
-                    className={`p-2 transition-colors relative ${isNotificationsOpen ? 'text-primary bg-surface' : 'text-secondary hover:text-primary'}`}
-                    title="Updates"
-                  >
-                     <Bell size={18} />
-                     {hasUnreadNotifications && (
-                        <span className="absolute top-2 right-2 w-2 h-2 bg-green-500 rounded-full border border-background animate-pulse"></span>
-                     )}
-                  </button>
+              {/* Notification Bell */}
+              <NotificationBell onNotificationClick={handleNotificationClick} />
 
-                  {isNotificationsOpen && (
-                    <>
-                        <div className="fixed inset-0 z-30" onClick={() => setIsNotificationsOpen(false)}></div>
-                        <div className="absolute right-0 top-full mt-2 w-80 bg-background border border-border shadow-xl z-40 animate-in slide-in-from-top-2 fade-in duration-200">
-                            <div className="p-3 border-b border-border flex justify-between items-center bg-surface/30">
-                                <span className="font-medium text-sm">Notifications</span>
-                                <span className="text-[10px] text-secondary uppercase tracking-wider font-mono">Recent</span>
-                            </div>
-                            <div className="max-h-[320px] overflow-y-auto">
-                                {recentActivity.length > 0 ? (
-                                    recentActivity.map(log => {
-                                        const isClickable = isCaseRelatedNotification(log.target);
-                                        return (
-                                          <button
-                                            key={log.id}
-                                            onClick={() => isClickable && handleNotificationClick(log.target)}
-                                            disabled={!isClickable}
-                                            className={`w-full p-3 border-b border-border last:border-0 transition-colors flex gap-3 group text-left ${
-                                              isClickable
-                                                ? 'hover:bg-surface/50 cursor-pointer'
-                                                : 'cursor-default opacity-80'
-                                            }`}
-                                          >
-                                              <div className="text-lg pt-0.5">{log.icon || '•'}</div>
-                                              <div className="flex-1 min-w-0">
-                                                  <div className="flex justify-between items-start">
-                                                      <p className="text-xs font-medium text-primary truncate pr-2">{log.action}</p>
-                                                      <span className="text-[9px] text-secondary/50 font-mono shrink-0 whitespace-nowrap">
-                                                          {new Date(log.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                                      </span>
-                                                  </div>
-                                                  <p className="text-[11px] text-secondary mt-0.5 leading-snug line-clamp-2 group-hover:text-primary/80 transition-colors">{log.target}</p>
-                                                  {isClickable && (
-                                                    <span className="text-[10px] text-primary mt-1 inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                      View case <ExternalLink size={10} />
-                                                    </span>
-                                                  )}
-                                              </div>
-                                          </button>
-                                        );
-                                    })
-                                ) : (
-                                    <div className="p-6 text-center text-xs text-secondary">No recent notifications</div>
-                                )}
-                            </div>
-                            <div className="p-2 border-t border-border bg-surface/50 text-center">
-                                <button className="text-[10px] font-medium uppercase tracking-wider text-secondary hover:text-primary transition-colors">View All Activity</button>
-                            </div>
-                        </div>
-                    </>
-                  )}
-              </div>
-
-              <button 
-                  onClick={toggleTheme}
-                  className="p-2 text-secondary hover:text-primary transition-colors"
-                  title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-              >
-                  {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-              </button>
-              
               <div className="relative">
-                <button 
+                <button
                   onClick={() => setIsProfileOpen(!isProfileOpen)}
-                  className="w-8 h-8 rounded-none bg-surface border border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-secondary transition-colors"
+                  className="w-8 h-8 rounded-lg bg-surface border border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-secondary transition-colors"
                 >
                     <img src="https://i.pravatar.cc/150?u=a042581f4e29026704d" alt="Profile" className="w-full h-full object-cover opacity-80 hover:opacity-100 transition-opacity" />
                 </button>
@@ -341,7 +255,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
                 {isProfileOpen && (
                     <>
                       <div className="fixed inset-0 z-30" onClick={() => setIsProfileOpen(false)}></div>
-                      <div className="absolute right-0 top-full mt-2 w-56 bg-background border border-border shadow-xl z-40 animate-in slide-in-from-top-2 fade-in duration-200 flex flex-col p-1">
+                      <div className="absolute right-0 top-full mt-2 w-56 bg-background border border-border shadow-xl z-40 animate-in slide-in-from-top-2 fade-in duration-200 flex flex-col p-1 rounded-xl">
                           <div className="px-3 py-2 border-b border-border mb-1">
                               <div className="flex items-center gap-2 mb-1">
                                 <p className="text-sm font-medium text-primary">
@@ -360,19 +274,19 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
                               </p>
                           </div>
                           
-                          <button onClick={() => handleProfileNavigation('profile')} className="flex items-center gap-2 px-3 py-2 text-sm text-secondary hover:text-primary hover:bg-surface text-left transition-colors">
+                          <button onClick={() => handleProfileNavigation('profile')} className="flex items-center gap-2 px-3 py-2 text-sm text-secondary hover:text-primary hover:bg-surface text-left transition-colors rounded-lg">
                               <User size={16} />
                               <span>Profile</span>
                           </button>
-                          <button onClick={() => handleProfileNavigation('notifications')} className="flex items-center gap-2 px-3 py-2 text-sm text-secondary hover:text-primary hover:bg-surface text-left transition-colors">
+                          <button onClick={() => handleProfileNavigation('notifications')} className="flex items-center gap-2 px-3 py-2 text-sm text-secondary hover:text-primary hover:bg-surface text-left transition-colors rounded-lg">
                               <Bell size={16} />
                               <span>Notifications</span>
                           </button>
-                          <button onClick={() => handleProfileNavigation('security')} className="flex items-center gap-2 px-3 py-2 text-sm text-secondary hover:text-primary hover:bg-surface text-left transition-colors">
+                          <button onClick={() => handleProfileNavigation('security')} className="flex items-center gap-2 px-3 py-2 text-sm text-secondary hover:text-primary hover:bg-surface text-left transition-colors rounded-lg">
                               <Shield size={16} />
                               <span>Security</span>
                           </button>
-                          <button onClick={() => handleProfileNavigation('billing')} className="flex items-center gap-2 px-3 py-2 text-sm text-secondary hover:text-primary hover:bg-surface text-left transition-colors">
+                          <button onClick={() => handleProfileNavigation('billing')} className="flex items-center gap-2 px-3 py-2 text-sm text-secondary hover:text-primary hover:bg-surface text-left transition-colors rounded-lg">
                               <CreditCard size={16} />
                               <span>Billing</span>
                           </button>
@@ -384,7 +298,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
                               setIsProfileOpen(false);
                               onLogout();
                             }}
-                            className="flex items-center gap-2 px-3 py-2 text-sm text-red-500 hover:bg-red-500/10 text-left transition-colors"
+                            className="flex items-center gap-2 px-3 py-2 text-sm text-red-500 hover:bg-red-500/10 text-left transition-colors rounded-lg"
                           >
                               <LogOut size={16} />
                               <span>Sign Out</span>
@@ -422,6 +336,16 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
               <ReportBadActor />
             </div>
           )}
+          {activeSidebarTab === 'takedowns' && (
+            <div className="animate-in fade-in slide-in-from-bottom-2">
+              {isAdminMode ? <AdminDashboard /> : <ReportBadActor />}
+            </div>
+          )}
+          {activeSidebarTab === 'enforcing' && (
+            <div className="animate-in fade-in slide-in-from-bottom-2">
+              <EnforcingWorkspace mode={isAdminMode ? 'lawyer' : 'member'} />
+            </div>
+          )}
           {activeSidebarTab === 'docs' && (
             <div className="animate-in fade-in slide-in-from-bottom-2">
               <IPDocuments />
@@ -450,6 +374,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
         </main>
       </div>
 
+      <AIDrawer isOpen={isAIDrawerOpen} onToggle={setIsAIDrawerOpen} />
       <ToastContainer />
 
       {/* Case Detail Modal from Notification Click */}
@@ -489,15 +414,20 @@ const AppContent: React.FC = () => {
 
   // Legacy role state for demo mode (when Supabase not configured)
   const [demoRole, setDemoRole] = useState<UserRole>(() => {
-    const saved = sessionStorage.getItem('userRole');
-    return (saved === 'brand' || saved === 'admin') ? saved : null;
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('userRole');
+      return (saved === 'brand' || saved === 'admin') ? saved : null;
+    }
+    return null;
   });
 
   if (bypassAuth) {
     return (
-      <DashboardProvider>
-        <MainLayout userRole={bypassRole} onLogout={() => undefined} />
-      </DashboardProvider>
+      <NotificationProvider>
+        <DashboardProvider>
+          <MainLayout userRole={bypassRole} onLogout={() => undefined} />
+        </DashboardProvider>
+      </NotificationProvider>
     );
   }
 
@@ -534,9 +464,11 @@ const AppContent: React.FC = () => {
     const userRole: UserRole = profile?.role === 'admin' || profile?.role === 'lawyer' ? 'admin' : 'brand';
 
     return (
-      <DashboardProvider>
-        <MainLayout userRole={userRole} onLogout={signOut} />
-      </DashboardProvider>
+      <NotificationProvider>
+        <DashboardProvider>
+          <MainLayout userRole={userRole} onLogout={signOut} />
+        </DashboardProvider>
+      </NotificationProvider>
     );
   }
 
@@ -546,9 +478,11 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <DashboardProvider>
-      <MainLayout userRole={demoRole} onLogout={handleDemoLogout} />
-    </DashboardProvider>
+    <NotificationProvider>
+      <DashboardProvider>
+        <MainLayout userRole={demoRole} onLogout={handleDemoLogout} />
+      </DashboardProvider>
+    </NotificationProvider>
   );
 };
 

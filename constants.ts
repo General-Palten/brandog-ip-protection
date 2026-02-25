@@ -16,11 +16,15 @@ export const PLATFORM_CONFIG: Record<PlatformType, { label: string, color: strin
 };
 
 export const STATUS_CONFIG: Record<InfringementStatus, { label: string, className: string }> = {
-  'detected': { label: 'Detected', className: 'bg-blue-100 text-blue-700 border-blue-200' },
-  'pending_review': { label: 'Pending Review', className: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
-  'in_progress': { label: 'In Progress', className: 'bg-orange-100 text-orange-700 border-orange-200' },
-  'resolved': { label: 'Resolved', className: 'bg-green-100 text-green-700 border-green-200' },
-  'rejected': { label: 'Rejected', className: 'bg-gray-100 text-gray-600 border-gray-200' }
+  'detected': { label: 'New Detection', className: 'bg-blue-100 text-blue-700 border-blue-200' },
+  'pending_review': { label: 'Awaiting Review', className: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+  'needs_member_input': { label: 'Needs Your Input', className: 'bg-orange-100 text-orange-700 border-orange-200' },
+  'in_progress': { label: 'Enforcing', className: 'bg-purple-100 text-purple-700 border-purple-200' },
+  'resolved_success': { label: 'Successful', className: 'bg-green-100 text-green-700 border-green-200' },
+  'resolved_partial': { label: 'Partial', className: 'bg-lime-100 text-lime-700 border-lime-200' },
+  'resolved_failed': { label: 'Failed', className: 'bg-red-100 text-red-700 border-red-200' },
+  'dismissed_by_member': { label: 'Dismissed', className: 'bg-gray-100 text-gray-600 border-gray-200' },
+  'dismissed_by_admin': { label: 'Dismissed by Admin', className: 'bg-gray-100 text-gray-600 border-gray-200' },
 };
 
 // Predefined case update types for lawyer-client communication

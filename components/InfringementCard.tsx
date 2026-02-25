@@ -3,26 +3,35 @@ import { InfringementItem } from '../types';
 import {
   GitCommit, Users, Monitor, DollarSign,
   ChevronDown, Flag, CheckCircle, ExternalLink, MoreVertical,
-  Clock, AlertCircle, XCircle, ShieldCheck, ImageOff, MessageSquare
+  Clock, AlertCircle, XCircle, ShieldCheck, ImageOff, MessageSquare, Bell
 } from 'lucide-react';
 import PlatformIcon from './ui/PlatformIcon';
 import BentoCard from './ui/BentoCard';
 import { useDashboard } from '../context/DashboardContext';
+import { canTransitionCaseStatus, needsMemberInput } from '../lib/case-status';
+import { formatRevenueDisplay, getEffectivePriority, getPriorityClasses } from '../lib/priority';
 
 interface InfringementCardProps {
   item: InfringementItem;
   onDismiss: (e: React.MouseEvent) => void;
   onReport: (e: React.MouseEvent) => void;
+  isSelected?: boolean;
 }
 
-const InfringementCard: React.FC<InfringementCardProps> = ({ item, onDismiss, onReport }) => {
+const InfringementCard: React.FC<InfringementCardProps> = ({ item, onDismiss, onReport, isSelected }) => {
   const [isDismissOpen, setIsDismissOpen] = useState(false);
   const [originalImageUrl, setOriginalImageUrl] = useState<string>(item.originalImage);
   const [imageLoadError, setImageLoadError] = useState<{ original: boolean; copycat: boolean }>({ original: false, copycat: false });
   const { getAssetURL, getUnreadUpdateCount } = useDashboard();
+  const canDismiss = canTransitionCaseStatus(item.status, 'dismissed_by_member');
 
   // Get unread message count for this case
   const unreadCount = getUnreadUpdateCount(item.id);
+
+  // Priority and revenue display
+  const priority = getEffectivePriority(item);
+  const revenueDisplay = formatRevenueDisplay(item);
+  const showNeedsInput = needsMemberInput(item.status);
 
   // Load original image from IndexedDB if originalAssetId is present and originalImage is empty
   useEffect(() => {
@@ -39,17 +48,29 @@ const InfringementCard: React.FC<InfringementCardProps> = ({ item, onDismiss, on
   }, [item.originalImage, item.originalAssetId, getAssetURL]);
 
   return (
-    <BentoCard className="h-full hover:border-primary/50 transition-colors duration-300 group">
+    <BentoCard className={`h-full hover:border-primary/50 transition-colors duration-300 group ${isSelected ? 'border-primary ring-2 ring-primary/20' : ''}`}>
       <div className="flex flex-col h-full gap-6">
         {/* Header */}
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3 min-w-0">
+            {/* Priority indicator */}
+            <div className={`w-2 h-2 rounded-full shrink-0 ${
+              priority === 'high' ? 'bg-red-500' :
+              priority === 'medium' ? 'bg-orange-400' : 'bg-yellow-400'
+            }`} title={`${priority} priority`} />
             <h3 className="font-semibold text-lg text-primary truncate tracking-tight">{item.brandName}</h3>
             {item.isTrademarked && (
-              <span className="text-[10px] font-mono bg-background border border-border text-secondary px-1.5 py-0.5 rounded-none shrink-0">TM</span>
+              <span className="text-[10px] font-mono bg-background border border-border text-secondary px-1.5 py-0.5 rounded-lg shrink-0">TM</span>
             )}
           </div>
           <div className="flex items-center gap-2">
+            {/* Needs input indicator */}
+            {showNeedsInput && (
+              <div className="flex items-center gap-1 px-2 py-1 rounded bg-orange-500/10 border border-orange-500/30 text-orange-500">
+                <Bell size={12} />
+                <span className="text-[10px] font-bold">Action</span>
+              </div>
+            )}
             {/* Unread messages indicator */}
             {unreadCount > 0 && (
               <div className="flex items-center gap-1 px-2 py-1 rounded bg-blue-500/10 border border-blue-500/30 text-blue-500">
@@ -67,7 +88,7 @@ const InfringementCard: React.FC<InfringementCardProps> = ({ item, onDismiss, on
         <div className="flex gap-4">
           <div className="flex-1">
             <p className="text-[10px] text-secondary mb-2 uppercase tracking-wider font-medium">Original</p>
-            <div className="aspect-square bg-background border border-border overflow-hidden relative rounded-none">
+            <div className="aspect-square bg-background border border-border overflow-hidden relative rounded-lg">
               {originalImageUrl && !imageLoadError.original ? (
                 <img
                   src={originalImageUrl}
@@ -85,7 +106,7 @@ const InfringementCard: React.FC<InfringementCardProps> = ({ item, onDismiss, on
           </div>
           <div className="flex-1">
             <p className="text-[10px] text-red-500 mb-2 uppercase tracking-wider font-medium">Infringement</p>
-            <div className="aspect-square bg-background border border-red-500/30 overflow-hidden relative rounded-none">
+            <div className="aspect-square bg-background border border-red-500/30 overflow-hidden relative rounded-lg">
                {item.platform === 'TikTok Shop' && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
                       <div className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center backdrop-blur-sm">
@@ -136,11 +157,15 @@ const InfringementCard: React.FC<InfringementCardProps> = ({ item, onDismiss, on
                 </div>
             </div>
 
-            {/* Risk */}
+            {/* Revenue at Risk */}
              <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-secondary uppercase tracking-wider">Risk</span>
-                <span className="font-mono text-sm font-medium text-red-500 bg-red-500/10 border border-red-500/20 px-2 py-0.5 w-fit rounded-none">
-                  ${item.revenueLost.toLocaleString()}
+                <span className="text-[10px] text-secondary uppercase tracking-wider">Revenue at Risk</span>
+                <span className={`font-mono text-sm font-medium px-2 py-0.5 w-fit rounded-lg border ${
+                  revenueDisplay.severity === 'high' ? 'text-red-500 bg-red-500/10 border-red-500/20' :
+                  revenueDisplay.severity === 'medium' ? 'text-orange-500 bg-orange-500/10 border-orange-500/20' :
+                  'text-yellow-600 bg-yellow-500/10 border-yellow-500/20'
+                }`}>
+                  {revenueDisplay.text}
                 </span>
             </div>
         </div>
@@ -150,49 +175,60 @@ const InfringementCard: React.FC<InfringementCardProps> = ({ item, onDismiss, on
           <button
             onClick={onReport}
             disabled={item.status !== 'detected'}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-none text-sm font-medium transition-all
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all
               ${item.status === 'pending_review'
                 ? 'bg-yellow-500/10 text-yellow-600 border border-yellow-500/20 cursor-not-allowed'
-                : item.status === 'in_progress'
+                : item.status === 'needs_member_input'
                 ? 'bg-orange-500/10 text-orange-600 border border-orange-500/20 cursor-not-allowed'
-                : item.status === 'resolved'
+                : item.status === 'in_progress'
+                ? 'bg-purple-500/10 text-purple-600 border border-purple-500/20 cursor-not-allowed'
+                : item.status === 'resolved_success'
                 ? 'bg-green-500/10 text-green-500 border border-green-500/20 cursor-not-allowed'
-                : item.status === 'rejected'
+                : item.status === 'resolved_partial'
+                ? 'bg-lime-500/10 text-lime-600 border border-lime-500/20 cursor-not-allowed'
+                : item.status === 'resolved_failed'
+                ? 'bg-red-500/10 text-red-500 border border-red-500/20 cursor-not-allowed'
+                : item.status === 'dismissed_by_member' || item.status === 'dismissed_by_admin'
                 ? 'bg-gray-500/10 text-gray-500 border border-gray-500/20 cursor-not-allowed'
                 : 'bg-primary text-inverse hover:opacity-90 shadow-sm'}`}
           >
-            {item.status === 'pending_review' && <><Clock size={14} /> Pending Review</>}
-            {item.status === 'in_progress' && <><AlertCircle size={14} /> In Progress</>}
-            {item.status === 'resolved' && <><ShieldCheck size={14} /> Resolved</>}
-            {item.status === 'rejected' && <><XCircle size={14} /> Rejected</>}
-            {item.status === 'detected' && <><Flag size={14} /> Request Takedown</>}
+            {item.status === 'pending_review' && <><Clock size={14} /> Awaiting Review</>}
+            {item.status === 'needs_member_input' && <><Bell size={14} /> Needs Your Input</>}
+            {item.status === 'in_progress' && <><AlertCircle size={14} /> Enforcing</>}
+            {item.status === 'resolved_success' && <><ShieldCheck size={14} /> Successful</>}
+            {item.status === 'resolved_partial' && <><CheckCircle size={14} /> Partial</>}
+            {item.status === 'resolved_failed' && <><XCircle size={14} /> Failed</>}
+            {(item.status === 'dismissed_by_member' || item.status === 'dismissed_by_admin') && <><XCircle size={14} /> Dismissed</>}
+            {item.status === 'detected' && <><Flag size={14} /> Request Enforcement</>}
           </button>
 
-          <div className="relative">
-            <button 
-              onClick={(e) => { e.stopPropagation(); setIsDismissOpen(!isDismissOpen); }}
-              className="h-full px-3 border border-border rounded-none bg-surface text-secondary hover:text-primary hover:border-secondary transition-colors"
-            >
-              <MoreVertical size={16} />
-            </button>
-            
-            {isDismissOpen && (
-              <div className="absolute bottom-full right-0 mb-2 w-32 bg-background border border-border shadow-xl py-1 z-20 rounded-none animate-in zoom-in-95">
-                <button 
-                  onClick={onDismiss}
-                  className="w-full text-left px-4 py-2 text-xs font-mono uppercase text-red-500 hover:bg-surface transition-colors"
-                >
-                  Dismiss
-                </button>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); setIsDismissOpen(false); }}
-                  className="w-full text-left px-4 py-2 text-xs font-mono uppercase text-secondary hover:bg-surface transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-          </div>
+          {canDismiss && (
+            <div className="relative">
+              <button 
+                onClick={(e) => { e.stopPropagation(); setIsDismissOpen(!isDismissOpen); }}
+                className="h-full px-3 border border-border rounded-lg bg-surface text-secondary hover:text-primary hover:border-secondary transition-colors"
+              >
+                <MoreVertical size={16} />
+              </button>
+              
+              {isDismissOpen && (
+                <div className="absolute bottom-full right-0 mb-2 w-32 bg-background border border-border shadow-xl py-1 z-20 rounded-lg animate-in zoom-in-95">
+                  <button 
+                    onClick={onDismiss}
+                    className="w-full text-left px-4 py-2 text-xs font-mono uppercase text-red-500 hover:bg-surface transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setIsDismissOpen(false); }}
+                    className="w-full text-left px-4 py-2 text-xs font-mono uppercase text-secondary hover:bg-surface transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </BentoCard>

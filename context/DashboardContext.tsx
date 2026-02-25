@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
-import { InfringementItem, KeywordItem, ActivityLogItem, PlatformType, PersistedAsset, VisionSearchResult, TakedownRequest, InfringementStatus, CaseUpdate, CaseUpdateType, AssetScanStatus } from '../types';
+import { InfringementItem, KeywordItem, ActivityLogItem, PlatformType, PersistedAsset, VisionSearchResult, TakedownRequest, InfringementStatus, CaseUpdate, CaseUpdateType, AssetScanStatus, ScanEventItem, InfringementPriority, DismissReason } from '../types';
 import { fileToArrayBuffer, arrayBufferToBase64, getMimeType, getAssetType, readTextContent } from '../lib/asset-utils';
 import { searchByImage } from '../lib/vision-api';
 import { isVisionConfigured, getVisionConfig } from '../lib/api-config';
@@ -7,6 +7,10 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import { uploadAsset as uploadToStorage, getAssetUrl as getStorageUrl, deleteAsset as deleteFromStorage } from '../lib/storage';
 import { isBypassAuthEnabled } from '../lib/runtime-config';
+import { CaseTransitionAction, inferCaseTransitionAction, validateCaseStatusTransition } from '../lib/case-status';
+import { seedDatabase } from '../lib/seed-data';
+import { MOCK_ACTIVITY, MOCK_INFRINGEMENTS, MOCK_KEYWORDS } from '../constants';
+import { useNotificationsSafe, createStatusChangeNotification } from './NotificationContext';
 
 interface Notification {
   id: string;
@@ -14,7 +18,7 @@ interface Notification {
   message: string;
 }
 
-type CreateInfringementReason = 'duplicate' | 'invalid_url' | 'db_error';
+type CreateInfringementReason = 'duplicate' | 'invalid_url' | 'db_error' | 'whitelisted';
 
 interface CreateInfringementResult {
   created: boolean;
@@ -32,6 +36,7 @@ interface DashboardContextType {
   keywords: KeywordItem[];
   notifications: Notification[];
   recentActivity: ActivityLogItem[];
+  scanEvents: ScanEventItem[];
   isMobileMenuOpen: boolean;
   theme: 'dark' | 'light';
   toggleTheme: () => void;
@@ -40,12 +45,19 @@ interface DashboardContextType {
   isConfigured: boolean;
   // Actions
   reportInfringement: (id: string) => void;
-  dismissInfringement: (id: string) => void;
+  reportInfringementBulk: (ids: string[]) => Promise<void>;
+  dismissInfringement: (id: string, reason: DismissReason, reasonText?: string) => void;
+  dismissInfringementBulk: (ids: string[], reason: DismissReason, reasonText?: string) => Promise<void>;
   undoInfringementStatus: (id: string) => void;
+  setInfringementPriority: (id: string, priority: InfringementPriority) => Promise<void>;
+  respondToAdminRequest: (id: string, message: string) => Promise<void>;
+  withdrawRequest: (id: string) => Promise<void>;
+  requestRetry: (id: string, message: string) => Promise<void>;
   addKeyword: (text: string, type: 'active' | 'negative' | 'suggested') => void;
   deleteKeyword: (id: string) => void;
   addNotification: (type: 'success' | 'error' | 'info', message: string) => void;
   removeNotification: (id: string) => void;
+  populateDummyData: () => Promise<void>;
   resetData: () => void;
   // Asset management
   assets: PersistedAsset[];
@@ -63,7 +75,12 @@ interface DashboardContextType {
   // Takedown management
   takedownRequests: TakedownRequest[];
   requestTakedown: (infringementId: string) => void;
-  updateTakedownStatus: (caseId: string, status: InfringementStatus, adminNotes?: string) => void;
+  updateTakedownStatus: (
+    caseId: string,
+    status: InfringementStatus,
+    adminNotes?: string,
+    transitionAction?: CaseTransitionAction
+  ) => void;
   getTakedownForCase: (caseId: string) => TakedownRequest | undefined;
   // Case update management
   addCaseUpdate: (caseId: string, type: CaseUpdateType, message: string, createdBy?: 'lawyer' | 'system' | 'brand_owner') => void;
@@ -87,6 +104,9 @@ const transformSupabaseInfringement = (dbInf: any, brandName: string = 'Unknown'
   revenueLost: Number(dbInf.revenue_lost) || 0,
   status: dbInf.status,
   detectedAt: dbInf.detected_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+  detectionProvider: dbInf.detection_provider || undefined,
+  detectionMethod: dbInf.detection_method || undefined,
+  sourceFingerprint: dbInf.source_fingerprint || undefined,
   country: dbInf.country || 'Unknown',
   originalAssetId: dbInf.original_asset_id || undefined,
   infringingUrl: dbInf.infringing_url || undefined,
@@ -100,6 +120,12 @@ const transformSupabaseInfringement = (dbInf: any, brandName: string = 'Unknown'
     provider: dbInf.hosting_provider || 'Unknown',
     ipAddress: dbInf.hosting_ip_address || 'Unknown',
   },
+  // New workflow fields
+  priority: dbInf.priority || undefined,
+  prioritySetBy: dbInf.priority_set_by || undefined,
+  dismissReason: dbInf.dismiss_reason || undefined,
+  dismissReasonText: dbInf.dismiss_reason_text || undefined,
+  retryCount: dbInf.retry_count || 0,
 });
 
 // Transform Supabase keyword to local type
@@ -131,6 +157,28 @@ const transformSupabaseAsset = (dbAsset: any): PersistedAsset => ({
   lastScanError: dbAsset.last_scan_error || undefined,
 });
 
+const transformSupabaseScanEvent = (row: any): ScanEventItem => {
+  const metadata = row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+    ? row.metadata as Record<string, unknown>
+    : {};
+
+  return {
+    id: row.id,
+    assetId: row.asset_id || null,
+    provider: row.provider || GOOGLE_VISION_PROVIDER,
+    status: row.status,
+    startedAt: row.started_at || row.created_at || new Date().toISOString(),
+    finishedAt: row.finished_at || undefined,
+    matchesFound: row.matches_found || 0,
+    duplicatesSkipped: row.duplicates_skipped || 0,
+    invalidResults: row.invalid_results || 0,
+    failedResults: row.failed_results || 0,
+    estimatedCostUsd: row.estimated_cost_usd ?? undefined,
+    errorMessage: row.error_message || undefined,
+    metadata,
+  };
+};
+
 const normalizeExternalUrl = (url: string): string | null => {
   const trimmed = url.trim();
   if (!trimmed) return null;
@@ -143,6 +191,72 @@ const normalizeExternalUrl = (url: string): string | null => {
     return new URL(withProtocol).toString();
   } catch {
     return null;
+  }
+};
+
+const formatTransitionErrorMessage = (error: {
+  message: string;
+  allowedNext: InfringementStatus[];
+  requiredAction?: CaseTransitionAction;
+}): string => {
+  const allowedText = error.allowedNext.length > 0
+    ? `Allowed next statuses: ${error.allowedNext.join(', ')}.`
+    : 'No further status changes are allowed from this state.';
+
+  if (error.requiredAction) {
+    return `${error.message} Required action: ${error.requiredAction}. ${allowedText}`;
+  }
+
+  return `${error.message} ${allowedText}`;
+};
+
+const normalizeWhitelistDomain = (input: string): string | null => {
+  const raw = input.trim().toLowerCase();
+  if (!raw) return null;
+
+  const withProtocol = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(raw)
+    ? raw
+    : `https://${raw}`;
+
+  try {
+    const hostname = new URL(withProtocol).hostname.toLowerCase();
+    return hostname.replace(/^www\./, '');
+  } catch {
+    return raw.replace(/^www\./, '');
+  }
+};
+
+const resolveCaseUpdateActor = (action?: CaseTransitionAction): 'lawyer' | 'system' | 'brand_owner' => {
+  if (!action) return 'system';
+  if (action.startsWith('company_')) return 'brand_owner';
+  if (action.startsWith('lawyer_')) return 'lawyer';
+  return 'system';
+};
+
+const resolveCaseUpdateMessage = (
+  action: CaseTransitionAction | undefined,
+  fromStatus: InfringementStatus,
+  toStatus: InfringementStatus,
+  notes?: string
+): string => {
+  const statusText = `${fromStatus.replace('_', ' ')} -> ${toStatus.replace('_', ' ')}`;
+  const notesText = notes?.trim() ? ` Note: ${notes.trim()}` : '';
+
+  switch (action) {
+    case 'company_enforce':
+      return `Company approved enforcement (${statusText}).${notesText}`;
+    case 'company_dismiss':
+      return `Company dismissed case (${statusText}).${notesText}`;
+    case 'company_whitelist':
+      return `Company whitelisted trusted entity and closed case (${statusText}).${notesText}`;
+    case 'lawyer_resolve':
+      return `Legal team marked case resolved (${statusText}).${notesText}`;
+    case 'lawyer_reject':
+      return `Legal team closed case as rejected (${statusText}).${notesText}`;
+    case 'manual_reopen':
+      return `Case reopened for renewed detection (${statusText}).${notesText}`;
+    default:
+      return `Case status changed (${statusText}).${notesText}`;
   }
 };
 
@@ -314,8 +428,166 @@ const sha256Hex = async (buffer: ArrayBuffer): Promise<string> => {
     .join('');
 };
 
+const DEMO_SEED_STORAGE_KEY = 'brandog_demo_seeded_v1';
+
+const buildLocalDemoDatasetFromMocks = (): {
+  keywords: KeywordItem[];
+  infringements: InfringementItem[];
+  takedownRequests: TakedownRequest[];
+  recentActivity: ActivityLogItem[];
+  scanEvents: ScanEventItem[];
+} => {
+  const now = new Date();
+  const statuses: InfringementStatus[] = ['detected', 'pending_review', 'in_progress', 'resolved', 'rejected', 'in_progress'];
+
+  const infringements = MOCK_INFRINGEMENTS.slice(0, 6).map((item, index) => {
+    const detectedAt = new Date(now);
+    detectedAt.setDate(now.getDate() - index);
+    return {
+      ...item,
+      id: `local_seed_inf_${index + 1}`,
+      brandName: 'Demo Brand',
+      status: statuses[index] || 'detected',
+      detectedAt: detectedAt.toISOString().split('T')[0],
+      detectionProvider: index % 2 === 0 ? GOOGLE_VISION_PROVIDER : SERPAPI_LENS_PROVIDER,
+      detectionMethod: index % 2 === 0 ? GOOGLE_WEB_DETECTION_METHOD : SERPAPI_LENS_METHOD,
+      sourceFingerprint: `demo-fingerprint-${index + 1}`,
+    } as InfringementItem;
+  });
+
+  const keywords = MOCK_KEYWORDS.slice(0, 6).map((keyword, index) => ({
+    ...keyword,
+    id: `local_seed_kw_${index + 1}`,
+  }));
+
+  const takedownRequests: TakedownRequest[] = infringements
+    .filter((item) => item.status !== 'detected')
+    .map((item, index) => {
+      const requestedAt = new Date(now.getTime() - (index + 1) * 6 * 60 * 60 * 1000).toISOString();
+      const processedAt = item.status === 'pending_review' ? undefined : new Date(now.getTime() - (index + 1) * 4 * 60 * 60 * 1000).toISOString();
+      const updates: CaseUpdate[] = [
+        {
+          id: `local_seed_update_${item.id}_1`,
+          caseId: item.id,
+          type: 'takedown_initiated',
+          message: 'Automated detection queued this case for company review.',
+          createdAt: requestedAt,
+          createdBy: 'system',
+          isRead: true,
+        },
+      ];
+
+      if (item.status === 'in_progress' || item.status === 'resolved') {
+        updates.push({
+          id: `local_seed_update_${item.id}_2`,
+          caseId: item.id,
+          type: 'custom',
+          message: 'Company approved enforcement (pending review -> in progress).',
+          createdAt: new Date(now.getTime() - (index + 1) * 3 * 60 * 60 * 1000).toISOString(),
+          createdBy: 'brand_owner',
+          isRead: true,
+        });
+      }
+
+      if (item.status === 'in_progress') {
+        updates.push({
+          id: `local_seed_update_${item.id}_3`,
+          caseId: item.id,
+          type: 'awaiting_response',
+          message: 'Awaiting platform response after legal submission.',
+          createdAt: new Date(now.getTime() - (index + 1) * 2 * 60 * 60 * 1000).toISOString(),
+          createdBy: 'lawyer',
+          isRead: false,
+        });
+      }
+
+      if (item.status === 'resolved') {
+        updates.push({
+          id: `local_seed_update_${item.id}_3`,
+          caseId: item.id,
+          type: 'content_removed',
+          message: 'Platform confirmed content removal.',
+          createdAt: processedAt || requestedAt,
+          createdBy: 'lawyer',
+          isRead: true,
+        });
+        updates.push({
+          id: `local_seed_update_${item.id}_4`,
+          caseId: item.id,
+          type: 'case_closed',
+          message: 'Case closed as resolved.',
+          createdAt: processedAt || requestedAt,
+          createdBy: 'lawyer',
+          isRead: true,
+        });
+      }
+
+      if (item.status === 'rejected') {
+        updates.push({
+          id: `local_seed_update_${item.id}_3`,
+          caseId: item.id,
+          type: 'custom',
+          message: 'Company dismissed case (pending review -> rejected).',
+          createdAt: processedAt || requestedAt,
+          createdBy: 'brand_owner',
+          isRead: true,
+        });
+      }
+
+      return {
+        id: `local_seed_td_${index + 1}`,
+        caseId: item.id,
+        originalAssetId: item.originalAssetId || `local_asset_${index + 1}`,
+        infringingUrl: item.infringingUrl || '',
+        detectedDate: item.detectedAt,
+        platform: item.platform,
+        status: item.status,
+        requestedAt,
+        processedAt,
+        updates,
+      };
+    });
+
+  const recentActivity = MOCK_ACTIVITY.slice(0, 4).map((entry, index) => ({
+    ...entry,
+    id: `local_seed_act_${index + 1}`,
+    user: entry.user || 'System',
+    timestamp: new Date(now.getTime() - (index + 1) * 60 * 60 * 1000),
+    icon: undefined,
+  }));
+
+  const scanEvents: ScanEventItem[] = infringements.map((item, index) => {
+    const status: ScanEventItem['status'] = index === 3 ? 'failed' : 'success';
+    const startedAt = new Date(now.getTime() - (index + 1) * 2 * 60 * 60 * 1000).toISOString();
+    return {
+      id: `local_seed_scan_${index + 1}`,
+      assetId: item.originalAssetId || `local_asset_${index + 1}`,
+      provider: item.detectionProvider || GOOGLE_VISION_PROVIDER,
+      status,
+      startedAt,
+      finishedAt: startedAt,
+      matchesFound: status === 'failed' ? 0 : 1,
+      duplicatesSkipped: index % 3 === 0 ? 1 : 0,
+      invalidResults: status === 'failed' ? 1 : 0,
+      failedResults: status === 'failed' ? 1 : 0,
+      estimatedCostUsd: item.detectionProvider === SERPAPI_LENS_PROVIDER ? 0.01 : GOOGLE_VISION_WEB_DETECTION_USD,
+      errorMessage: status === 'failed' ? 'Temporary provider timeout' : undefined,
+      metadata: { mode: 'local_demo_seed' },
+    };
+  });
+
+  return {
+    keywords,
+    infringements,
+    takedownRequests,
+    recentActivity,
+    scanEvents,
+  };
+};
+
 export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, currentBrand, isConfigured: isAuthConfigured } = useAuth();
+  const { addNotification: addAppNotification } = useNotificationsSafe();
   const bypassAuth = isBypassAuthEnabled();
   const isLocalDemoMode = bypassAuth && (!user || !currentBrand);
   const isConfigured = isSupabaseConfigured() && isAuthConfigured;
@@ -338,6 +610,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
   const [recentActivity, setRecentActivity] = useState<ActivityLogItem[]>([]);
   const [assets, setAssets] = useState<PersistedAsset[]>([]);
   const [takedownRequests, setTakedownRequests] = useState<TakedownRequest[]>([]);
+  const [scanEvents, setScanEvents] = useState<ScanEventItem[]>([]);
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -429,12 +702,33 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
           })));
         }
 
+        // Load scan events for quality analytics and legal-safety signals
+        const { data: scanEventData, error: scanEventError } = await supabase
+          .from('scan_events')
+          .select('*')
+          .eq('brand_id', currentBrand.id)
+          .order('created_at', { ascending: false })
+          .limit(1000);
+
+        if (scanEventError && !isMissingTableError(scanEventError)) {
+          console.error('Error loading scan events:', scanEventError);
+        } else {
+          setScanEvents((scanEventData || []).map(transformSupabaseScanEvent));
+        }
+
         // Load takedown requests with case updates
         const { data: takedownData, error: takedownError } = await supabase
           .from('takedown_requests')
           .select(`
             *,
-            infringement:infringements!inner(id, brand_id),
+            infringement:infringements!inner(
+              id,
+              brand_id,
+              original_asset_id,
+              infringing_url,
+              platform,
+              detected_at
+            ),
             case_updates(*)
           `)
           .eq('infringement.brand_id', currentBrand.id)
@@ -446,10 +740,10 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
           const transformedTakedowns: TakedownRequest[] = takedownData.map((td: any) => ({
             id: td.id,
             caseId: td.infringement_id,
-            originalAssetId: '',
-            infringingUrl: '',
-            detectedDate: td.requested_at?.split('T')[0] || '',
-            platform: 'Website' as PlatformType,
+            originalAssetId: td.infringement?.original_asset_id || '',
+            infringingUrl: td.infringement?.infringing_url || '',
+            detectedDate: td.infringement?.detected_at?.split('T')[0] || td.requested_at?.split('T')[0] || '',
+            platform: (td.infringement?.platform || 'Website') as PlatformType,
             status: td.status,
             adminNotes: td.admin_notes,
             requestedAt: td.requested_at,
@@ -487,6 +781,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       setKeywords([]);
       setAssets([]);
       setTakedownRequests([]);
+      setScanEvents([]);
     }
   }, [currentBrand?.id]);
 
@@ -547,10 +842,247 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
+  const applyLocalDemoSeed = useCallback(() => {
+    const dataset = buildLocalDemoDatasetFromMocks();
+    setKeywords(dataset.keywords);
+    setInfringements(dataset.infringements);
+    setTakedownRequests(dataset.takedownRequests);
+    setRecentActivity(dataset.recentActivity);
+    setScanEvents(dataset.scanEvents);
+  }, []);
+
+  const populateDummyData = useCallback(async () => {
+    if (isLocalDemoMode || !currentBrand || !user) {
+      const dataset = buildLocalDemoDatasetFromMocks();
+      applyLocalDemoSeed();
+      localStorage.setItem(DEMO_SEED_STORAGE_KEY, '1');
+      addNotification('success', `Dummy data populated (${dataset.infringements.length} cases, ${dataset.keywords.length} keywords)`);
+      return;
+    }
+
+    try {
+      const { data: infringementRows } = await supabase
+        .from('infringements')
+        .select('id')
+        .eq('brand_id', currentBrand.id);
+      const infringementIds = (infringementRows || []).map((row) => row.id);
+
+      if (infringementIds.length > 0) {
+        const { data: takedownRows } = await supabase
+          .from('takedown_requests')
+          .select('id')
+          .in('infringement_id', infringementIds);
+        const takedownIds = (takedownRows || []).map((row) => row.id);
+
+        if (takedownIds.length > 0) {
+          await supabase.from('case_updates').delete().in('takedown_id', takedownIds);
+        }
+        await supabase.from('takedown_requests').delete().in('infringement_id', infringementIds);
+      }
+
+      await supabase.from('scan_events').delete().eq('brand_id', currentBrand.id);
+      await supabase.from('activity_logs').delete().eq('brand_id', currentBrand.id);
+      await supabase.from('keywords').delete().eq('brand_id', currentBrand.id);
+      await supabase.from('infringements').delete().eq('brand_id', currentBrand.id);
+
+      const result = await seedDatabase(user.id, currentBrand.id);
+      if (!result.success) {
+        throw new Error('seed_failed');
+      }
+
+      addNotification('success', 'Dummy data seeded in Supabase. Reloading...');
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 300);
+    } catch {
+      applyLocalDemoSeed();
+      localStorage.setItem(DEMO_SEED_STORAGE_KEY, '1');
+      addNotification('info', 'Supabase seed failed, loaded local dummy dataset instead');
+    }
+  }, [isLocalDemoMode, currentBrand, user, applyLocalDemoSeed, addNotification]);
+
+  useEffect(() => {
+    if (!isLocalDemoMode) return;
+    if (localStorage.getItem(DEMO_SEED_STORAGE_KEY) === '1') return;
+    if (
+      infringements.length > 0 ||
+      keywords.length > 0 ||
+      takedownRequests.length > 0 ||
+      recentActivity.length > 0 ||
+      scanEvents.length > 0
+    ) {
+      return;
+    }
+
+    applyLocalDemoSeed();
+    localStorage.setItem(DEMO_SEED_STORAGE_KEY, '1');
+  }, [
+    isLocalDemoMode,
+    infringements.length,
+    keywords.length,
+    takedownRequests.length,
+    recentActivity.length,
+    scanEvents.length,
+    applyLocalDemoSeed,
+  ]);
+
+  useEffect(() => {
+    if (!canLoadData || !currentBrand || isLocalDemoMode) {
+      return;
+    }
+
+    const now = Date.now();
+    const staleThresholdMs = 72 * 60 * 60 * 1000;
+    const todayKey = new Date().toISOString().slice(0, 10);
+
+    const staleCases = infringements.filter((item) => {
+      if (item.status !== 'in_progress') return false;
+      const request = takedownRequests.find((req) => req.caseId === item.id);
+      const reference = request?.processedAt || request?.requestedAt || item.detectedAt;
+      const parsed = Date.parse(reference);
+      if (!Number.isFinite(parsed)) return false;
+      return now - parsed >= staleThresholdMs;
+    });
+
+    staleCases.forEach((item) => {
+      const storageKey = `brandog_stale_case_alert_${item.id}`;
+      const lastSent = localStorage.getItem(storageKey);
+      if (lastSent === todayKey) return;
+
+      addNotification(
+        'info',
+        `Case ${item.id.slice(0, 8)} is overdue for follow-up in legal enforcement queue`
+      );
+      localStorage.setItem(storageKey, todayKey);
+    });
+  }, [
+    canLoadData,
+    currentBrand?.id,
+    isLocalDemoMode,
+    infringements,
+    takedownRequests,
+    addNotification,
+  ]);
+
+  useEffect(() => {
+    if (!currentBrand && !isLocalDemoMode) {
+      return;
+    }
+
+    const caseUpdatesByCase = new Map(
+      takedownRequests.map((request) => [request.caseId, request.updates || []] as const)
+    );
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const brandScope = currentBrand?.id || 'local_demo';
+
+    const legalAlerts: Array<{ key: string; severity: 'info' | 'error'; message: string }> = [];
+
+    // Trigger: counter-notices / appeals / legal challenges
+    for (const request of takedownRequests) {
+      const updates = request.updates || [];
+      const counterNotice = [...updates].reverse().find((update) =>
+        update.type === 'escalated' && /counter[- ]notice|appeal|legal challenge/i.test(update.message)
+      );
+      if (!counterNotice) continue;
+
+      legalAlerts.push({
+        key: `counter_notice_${request.caseId}`,
+        severity: 'error',
+        message: `Legal escalation required: counter-notice or appeal detected for case ${request.caseId.slice(0, 8)}.`,
+      });
+    }
+
+    // Trigger: high-value repeat offender pattern
+    for (const item of infringements) {
+      if (item.status !== 'in_progress') continue;
+
+      const itemDomain = normalizeWhitelistDomain(item.infringingUrl || '');
+      const offenderHistory = infringements.filter((candidate) => {
+        if (candidate.id === item.id) return false;
+        const sameSeller = Boolean(
+          item.sellerName &&
+          candidate.sellerName &&
+          item.sellerName.toLowerCase() === candidate.sellerName.toLowerCase()
+        );
+        const candidateDomain = normalizeWhitelistDomain(candidate.infringingUrl || '');
+        const sameDomain = Boolean(itemDomain && candidateDomain && itemDomain === candidateDomain);
+        return sameSeller || sameDomain;
+      }).length;
+
+      if (offenderHistory >= 3 && (item.siteVisitors >= 5000 || item.revenueLost >= 1000)) {
+        legalAlerts.push({
+          key: `repeat_offender_${item.id}`,
+          severity: 'error',
+          message: `Repeat offender escalation: case ${item.id.slice(0, 8)} has ${offenderHistory} linked incidents.`,
+        });
+      }
+    }
+
+    // Trigger: precision degradation against the legal safety gate
+    const reviewedCases = infringements.filter((item) =>
+      item.status === 'in_progress' || item.status === 'resolved' || item.status === 'rejected'
+    );
+    const companyRejected = reviewedCases.filter((item) => {
+      if (item.status !== 'rejected') return false;
+      const updates = caseUpdatesByCase.get(item.id) || [];
+      return updates.some((update) =>
+        update.type === 'custom' && /company dismissed case|company whitelisted trusted entity/i.test(update.message)
+      );
+    }).length;
+    const precision = reviewedCases.length > 0
+      ? (reviewedCases.length - companyRejected) / reviewedCases.length
+      : 1;
+
+    if (reviewedCases.length >= 10 && precision < 0.9) {
+      legalAlerts.push({
+        key: `precision_gate_${todayKey}`,
+        severity: 'error',
+        message: `Detection precision dropped to ${(precision * 100).toFixed(1)}% across ${reviewedCases.length} reviewed cases.`,
+      });
+    }
+
+    legalAlerts.forEach((alert) => {
+      const storageKey = `brandog_legal_risk_alert_${brandScope}_${alert.key}`;
+      const lastSent = localStorage.getItem(storageKey);
+      if (lastSent === todayKey) return;
+
+      addNotification(
+        alert.severity,
+        `${alert.message} See Incident Runbook for response steps.`
+      );
+      localStorage.setItem(storageKey, todayKey);
+    });
+  }, [
+    currentBrand?.id,
+    isLocalDemoMode,
+    infringements,
+    takedownRequests,
+    addNotification,
+  ]);
+
   // Request takedown
   const requestTakedown = useCallback(async (infringementId: string) => {
     const infringement = infringements.find(i => i.id === infringementId);
     if (!infringement) return;
+
+    const transitionValidation = validateCaseStatusTransition(
+      infringement.status,
+      'pending_review',
+      'member_request_enforcement'
+    );
+    if (!transitionValidation.ok) {
+      const transitionError = 'error' in transitionValidation ? transitionValidation.error : null;
+      addNotification(
+        'error',
+        transitionError ? formatTransitionErrorMessage(transitionError) : 'Invalid status transition'
+      );
+      return;
+    }
+
+    if (infringement.status === 'pending_review' || infringement.status === 'in_progress') {
+      addNotification('info', 'Enforcement has already been requested');
+      return;
+    }
 
     // Update infringement status in Supabase
     const { error: updateError } = await supabase
@@ -584,12 +1116,12 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     }
 
     // Create initial case update
-    const initialMessage = 'Your takedown request has been received. Our legal team will review your case and begin the enforcement process.';
+    const initialMessage = 'Your enforcement request has been received and is awaiting review by our team.';
     const { data: caseUpdate } = await supabase
       .from('case_updates')
       .insert({
         takedown_id: takedown.id,
-        update_type: 'takedown_initiated',
+        update_type: 'enforcement_requested',
         message: initialMessage,
         created_by: 'system',
       })
@@ -609,7 +1141,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       updates: caseUpdate ? [{
         id: caseUpdate.id,
         caseId: infringementId,
-        type: 'takedown_initiated',
+        type: 'enforcement_requested',
         message: initialMessage,
         createdAt: caseUpdate.created_at,
         createdBy: 'system',
@@ -618,18 +1150,42 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     };
 
     setTakedownRequests(prev => [newRequest, ...prev]);
-    addNotification('success', 'Takedown request submitted for review');
-    addActivity('Takedown Requested', `${infringement.brandName} - ${infringement.sellerName}`, 'info');
+    addNotification('success', 'Enforcement request submitted - awaiting review');
+    addActivity('Enforcement Requested', `${infringement.brandName} - ${infringement.sellerName}`, 'info');
   }, [infringements, addNotification, addActivity]);
 
   const reportInfringement = (id: string) => requestTakedown(id);
 
-  const dismissInfringement = useCallback(async (id: string) => {
+  const dismissInfringement = useCallback(async (id: string, reason: DismissReason = 'other', reasonText?: string) => {
     const item = infringements.find(i => i.id === id);
+    if (!item) return;
+
+    const transitionValidation = validateCaseStatusTransition(
+      item.status,
+      'dismissed_by_member',
+      'member_dismiss'
+    );
+    if (!transitionValidation.ok) {
+      const transitionError = 'error' in transitionValidation ? transitionValidation.error : null;
+      addNotification(
+        'error',
+        transitionError ? formatTransitionErrorMessage(transitionError) : 'Invalid status transition'
+      );
+      return;
+    }
+
+    if (item.status === 'dismissed_by_member' || item.status === 'dismissed_by_admin') {
+      addNotification('info', 'Case is already dismissed');
+      return;
+    }
 
     const { error } = await supabase
       .from('infringements')
-      .update({ status: 'rejected' })
+      .update({
+        status: 'dismissed_by_member',
+        dismiss_reason: reason,
+        dismiss_reason_text: reasonText || null,
+      })
       .eq('id', id);
 
     if (error) {
@@ -637,15 +1193,66 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       return;
     }
 
-    setInfringements(prev => prev.map(item =>
-      item.id === id ? { ...item, status: 'rejected' as InfringementStatus } : item
+    const takedown = takedownRequests.find(req => req.caseId === id);
+    if (takedown) {
+      const { error: takedownError } = await supabase
+        .from('takedown_requests')
+        .update({
+          status: 'dismissed_by_member',
+          processed_at: new Date().toISOString(),
+        })
+        .eq('id', takedown.id);
+
+      if (takedownError) {
+        addNotification('error', 'Case dismissed, but takedown request update failed');
+      }
+    }
+
+    setInfringements(prev => prev.map(inf =>
+      inf.id === id ? {
+        ...inf,
+        status: 'dismissed_by_member' as InfringementStatus,
+        dismissReason: reason,
+        dismissReasonText: reasonText,
+      } : inf
+    ));
+    setTakedownRequests(prev => prev.map(req =>
+      req.caseId === id
+        ? {
+            ...req,
+            status: 'dismissed_by_member',
+            processedAt: new Date().toISOString(),
+          }
+        : req
     ));
 
-    addNotification('info', 'Case rejected');
-    if (item) addActivity('Case Rejected', item.brandName, 'info');
-  }, [infringements, addNotification, addActivity]);
+    addNotification('info', 'Case dismissed');
+    if (item) addActivity('Case Dismissed', item.brandName, 'info');
+  }, [infringements, takedownRequests, addNotification, addActivity]);
 
   const undoInfringementStatus = useCallback(async (id: string) => {
+    const item = infringements.find(i => i.id === id);
+    if (!item) return;
+
+    const transitionValidation = validateCaseStatusTransition(
+      item.status,
+      'detected',
+      'manual_reopen'
+    );
+    if (!transitionValidation.ok) {
+      const transitionError = 'error' in transitionValidation ? transitionValidation.error : null;
+      addNotification(
+        'error',
+        transitionError ? formatTransitionErrorMessage(transitionError) : 'Invalid status transition'
+      );
+      return;
+    }
+
+    if (item.status === 'detected') {
+      addNotification('info', 'Case is already detected');
+      return;
+    }
+
     const { error } = await supabase
       .from('infringements')
       .update({ status: 'detected' })
@@ -656,50 +1263,519 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       return;
     }
 
+    const takedown = takedownRequests.find(req => req.caseId === id);
+    if (takedown) {
+      const { error: takedownError } = await supabase
+        .from('takedown_requests')
+        .update({
+          status: 'detected',
+          processed_at: new Date().toISOString(),
+        })
+        .eq('id', takedown.id);
+
+      if (takedownError) {
+        addNotification('error', 'Case reopened, but takedown request update failed');
+      }
+    }
+
     setInfringements(prev => prev.map(item =>
       item.id === id ? { ...item, status: 'detected' as InfringementStatus } : item
+    ));
+    setTakedownRequests(prev => prev.map(req =>
+      req.caseId === id
+        ? {
+            ...req,
+            status: 'detected',
+            processedAt: new Date().toISOString(),
+          }
+        : req
     ));
 
     addNotification('info', 'Status reverted to Detected');
     addActivity('Status Reverted', 'Case #' + id.slice(0, 8), 'warning');
-  }, [addNotification, addActivity]);
+  }, [infringements, takedownRequests, addNotification, addActivity]);
 
-  const updateTakedownStatus = useCallback(async (caseId: string, newStatus: InfringementStatus, adminNotes?: string) => {
+  // Bulk request enforcement for multiple cases
+  const reportInfringementBulk = useCallback(async (ids: string[]) => {
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        const item = infringements.find(i => i.id === id);
+        if (!item || item.status !== 'detected') return { id, skipped: true };
+
+        const { error } = await supabase
+          .from('infringements')
+          .update({ status: 'pending_review' })
+          .eq('id', id);
+
+        if (error) return { id, error: true };
+
+        await supabase
+          .from('takedown_requests')
+          .insert({
+            infringement_id: id,
+            status: 'pending_review',
+          });
+
+        return { id, success: true };
+      })
+    );
+
+    const successCount = results.filter(r => r.status === 'fulfilled' && (r.value as any).success).length;
+
+    setInfringements(prev => prev.map(item =>
+      ids.includes(item.id) && item.status === 'detected'
+        ? { ...item, status: 'pending_review' as InfringementStatus }
+        : item
+    ));
+
+    if (successCount > 0) {
+      addNotification('success', `Enforcement requested for ${successCount} case(s)`);
+      addActivity('Bulk Enforcement Requested', `${successCount} cases`, 'info');
+    }
+  }, [infringements, addNotification, addActivity]);
+
+  // Bulk dismiss for multiple cases
+  const dismissInfringementBulk = useCallback(async (ids: string[], reason: DismissReason, reasonText?: string) => {
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        const item = infringements.find(i => i.id === id);
+        if (!item || item.status !== 'detected') return { id, skipped: true };
+
+        const { error } = await supabase
+          .from('infringements')
+          .update({
+            status: 'dismissed_by_member',
+            dismiss_reason: reason,
+            dismiss_reason_text: reasonText || null,
+          })
+          .eq('id', id);
+
+        if (error) return { id, error: true };
+        return { id, success: true };
+      })
+    );
+
+    const successCount = results.filter(r => r.status === 'fulfilled' && (r.value as any).success).length;
+
+    setInfringements(prev => prev.map(item =>
+      ids.includes(item.id) && item.status === 'detected'
+        ? {
+            ...item,
+            status: 'dismissed_by_member' as InfringementStatus,
+            dismissReason: reason,
+            dismissReasonText: reasonText,
+          }
+        : item
+    ));
+
+    if (successCount > 0) {
+      addNotification('info', `Dismissed ${successCount} case(s)`);
+      addActivity('Bulk Dismiss', `${successCount} cases`, 'info');
+    }
+  }, [infringements, addNotification, addActivity]);
+
+  // Set priority for a case
+  const setInfringementPriority = useCallback(async (id: string, priority: InfringementPriority) => {
+    const { error } = await supabase
+      .from('infringements')
+      .update({
+        priority,
+        priority_set_by: 'member',
+      })
+      .eq('id', id);
+
+    if (error) {
+      addNotification('error', 'Failed to update priority');
+      return;
+    }
+
+    setInfringements(prev => prev.map(item =>
+      item.id === id
+        ? { ...item, priority, prioritySetBy: 'member' as const }
+        : item
+    ));
+
+    addNotification('success', `Priority set to ${priority}`);
+  }, [addNotification]);
+
+  // Member responds to admin's request for more info
+  const respondToAdminRequest = useCallback(async (id: string, message: string) => {
+    const item = infringements.find(i => i.id === id);
+    if (!item || item.status !== 'needs_member_input') {
+      addNotification('error', 'Cannot respond - case is not awaiting your input');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('infringements')
+      .update({ status: 'pending_review' })
+      .eq('id', id);
+
+    if (error) {
+      addNotification('error', 'Failed to submit response');
+      return;
+    }
+
+    // Add case update with member's response
+    const takedown = takedownRequests.find(t => t.caseId === id);
+    if (takedown) {
+      await supabase
+        .from('case_updates')
+        .insert({
+          takedown_id: takedown.id,
+          update_type: 'member_responded',
+          message,
+          created_by: 'brand_owner',
+        });
+
+      await supabase
+        .from('takedown_requests')
+        .update({ status: 'pending_review' })
+        .eq('id', takedown.id);
+    }
+
+    setInfringements(prev => prev.map(inf =>
+      inf.id === id ? { ...inf, status: 'pending_review' as InfringementStatus } : inf
+    ));
+    setTakedownRequests(prev => prev.map(req =>
+      req.caseId === id ? { ...req, status: 'pending_review' } : req
+    ));
+
+    addNotification('success', 'Response submitted');
+    addActivity('Member Responded', item.brandName, 'info');
+  }, [infringements, takedownRequests, addNotification, addActivity]);
+
+  // Member withdraws their enforcement request
+  const withdrawRequest = useCallback(async (id: string) => {
+    const item = infringements.find(i => i.id === id);
+    if (!item) return;
+
+    if (item.status !== 'pending_review' && item.status !== 'needs_member_input') {
+      addNotification('error', 'Cannot withdraw - case has already progressed');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('infringements')
+      .update({ status: 'dismissed_by_member' })
+      .eq('id', id);
+
+    if (error) {
+      addNotification('error', 'Failed to withdraw request');
+      return;
+    }
+
+    const takedown = takedownRequests.find(t => t.caseId === id);
+    if (takedown) {
+      await supabase
+        .from('case_updates')
+        .insert({
+          takedown_id: takedown.id,
+          update_type: 'member_withdrew',
+          message: 'Member withdrew the enforcement request.',
+          created_by: 'system',
+        });
+
+      await supabase
+        .from('takedown_requests')
+        .update({
+          status: 'dismissed_by_member',
+          processed_at: new Date().toISOString(),
+        })
+        .eq('id', takedown.id);
+    }
+
+    setInfringements(prev => prev.map(inf =>
+      inf.id === id ? { ...inf, status: 'dismissed_by_member' as InfringementStatus } : inf
+    ));
+    setTakedownRequests(prev => prev.map(req =>
+      req.caseId === id
+        ? { ...req, status: 'dismissed_by_member', processedAt: new Date().toISOString() }
+        : req
+    ));
+
+    addNotification('info', 'Request withdrawn');
+    addActivity('Request Withdrawn', item.brandName, 'info');
+  }, [infringements, takedownRequests, addNotification, addActivity]);
+
+  // Member requests retry on a failed case
+  const requestRetry = useCallback(async (id: string, message: string) => {
+    const item = infringements.find(i => i.id === id);
+    if (!item || item.status !== 'resolved_failed') {
+      addNotification('error', 'Can only retry failed cases');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('infringements')
+      .update({
+        status: 'pending_review',
+        retry_count: (item.retryCount || 0) + 1,
+      })
+      .eq('id', id);
+
+    if (error) {
+      addNotification('error', 'Failed to request retry');
+      return;
+    }
+
+    const takedown = takedownRequests.find(t => t.caseId === id);
+    if (takedown) {
+      await supabase
+        .from('case_updates')
+        .insert({
+          takedown_id: takedown.id,
+          update_type: 'retry_requested',
+          message: message || 'Member requested a retry for this case.',
+          created_by: 'brand_owner',
+        });
+
+      await supabase
+        .from('takedown_requests')
+        .update({ status: 'pending_review' })
+        .eq('id', takedown.id);
+    }
+
+    setInfringements(prev => prev.map(inf =>
+      inf.id === id
+        ? { ...inf, status: 'pending_review' as InfringementStatus, retryCount: (inf.retryCount || 0) + 1 }
+        : inf
+    ));
+    setTakedownRequests(prev => prev.map(req =>
+      req.caseId === id ? { ...req, status: 'pending_review' } : req
+    ));
+
+    addNotification('success', 'Retry requested');
+    addActivity('Retry Requested', item.brandName, 'info');
+  }, [infringements, takedownRequests, addNotification, addActivity]);
+
+  const updateTakedownStatus = useCallback(async (
+    caseId: string,
+    newStatus: InfringementStatus,
+    adminNotes?: string,
+    transitionAction?: CaseTransitionAction
+  ) => {
+    const caseItem = infringements.find(item => item.id === caseId);
+    if (!caseItem) {
+      addNotification('error', 'Case not found');
+      return;
+    }
+
+    const effectiveAction = transitionAction || inferCaseTransitionAction(caseItem.status, newStatus);
+    const transitionValidation = validateCaseStatusTransition(caseItem.status, newStatus, effectiveAction);
+    if (!transitionValidation.ok) {
+      const transitionError = 'error' in transitionValidation ? transitionValidation.error : null;
+      addNotification(
+        'error',
+        transitionError ? formatTransitionErrorMessage(transitionError) : 'Invalid status transition'
+      );
+      return;
+    }
+
+    if (caseItem.status === newStatus) {
+      addNotification('info', `Case is already ${newStatus.replace('_', ' ')}`);
+      return;
+    }
+
+    const isCloseTransition = caseItem.status === 'in_progress' && (
+      newStatus === 'resolved_success' ||
+      newStatus === 'resolved_partial' ||
+      newStatus === 'resolved_failed' ||
+      newStatus === 'dismissed_by_admin'
+    );
+    if (isCloseTransition && !adminNotes?.trim()) {
+      addNotification('error', 'Closing an in-progress case requires a closure reason note');
+      return;
+    }
+
+    let takedown = takedownRequests.find(t => t.caseId === caseId);
+    if (!takedown) {
+      const { data: createdTakedown, error: createTakedownError } = await supabase
+        .from('takedown_requests')
+        .insert({
+          infringement_id: caseId,
+          status: caseItem.status,
+        })
+        .select()
+        .single();
+
+      if (createTakedownError || !createdTakedown) {
+        addNotification('error', 'Failed to initialize case timeline');
+        return;
+      }
+
+      takedown = {
+        id: createdTakedown.id,
+        caseId,
+        originalAssetId: caseItem.originalAssetId || '',
+        infringingUrl: caseItem.infringingUrl || '',
+        detectedDate: caseItem.detectedAt,
+        platform: caseItem.platform,
+        status: caseItem.status,
+        requestedAt: createdTakedown.requested_at,
+        updates: [],
+      };
+
+      setTakedownRequests(prev => [takedown!, ...prev]);
+    }
+
+    const processedAt = new Date().toISOString();
+
     // Update infringement
-    await supabase
+    const { error: infringementError } = await supabase
       .from('infringements')
       .update({ status: newStatus })
       .eq('id', caseId);
+    if (infringementError) {
+      addNotification('error', 'Failed to update case status');
+      return;
+    }
 
-    // Find and update takedown request
-    const takedown = takedownRequests.find(t => t.caseId === caseId);
+    const generatedUpdates: CaseUpdate[] = [];
     if (takedown) {
-      await supabase
+      const { error: takedownError } = await supabase
         .from('takedown_requests')
         .update({
           status: newStatus,
           admin_notes: adminNotes,
-          processed_at: new Date().toISOString(),
+          processed_at: processedAt,
         })
         .eq('id', takedown.id);
+
+      if (takedownError) {
+        addNotification('error', 'Case updated, but takedown request sync failed');
+      }
+
+      const decisionMessage = resolveCaseUpdateMessage(
+        effectiveAction,
+        caseItem.status,
+        newStatus,
+        adminNotes
+      );
+      const decisionActor = resolveCaseUpdateActor(effectiveAction);
+      const { data: decisionRow, error: decisionError } = await supabase
+        .from('case_updates')
+        .insert({
+          takedown_id: takedown.id,
+          update_type: 'custom',
+          message: decisionMessage,
+          created_by: decisionActor,
+        })
+        .select()
+        .single();
+
+      if (decisionError) {
+        addNotification('error', 'Case updated, but timeline audit entry failed');
+      } else if (decisionRow) {
+        generatedUpdates.push({
+          id: decisionRow.id,
+          caseId,
+          type: 'custom',
+          message: decisionRow.message,
+          createdAt: decisionRow.created_at,
+          createdBy: decisionRow.created_by,
+          isRead: decisionRow.is_read,
+        });
+      }
+
+      if (effectiveAction === 'company_enforce') {
+        const caseDomain = normalizeWhitelistDomain(caseItem.infringingUrl || '');
+        const relatedHistoryCount = infringements.filter((item) => {
+          if (item.id === caseId) return false;
+          const sameSeller = Boolean(
+            caseItem.sellerName &&
+            item.sellerName &&
+            caseItem.sellerName.toLowerCase() === item.sellerName.toLowerCase()
+          );
+          const itemDomain = normalizeWhitelistDomain(item.infringingUrl || '');
+          const sameDomain = Boolean(caseDomain && itemDomain && caseDomain === itemDomain);
+          return sameSeller || sameDomain;
+        }).length;
+
+        const packageMessage = [
+          'Enforcement handoff package prepared for legal review.',
+          `Offender history matches: ${relatedHistoryCount}.`,
+          'AI draft artifacts generated: DMCA/platform notice template, evidence summary, and next-step recommendations.',
+        ].join(' ');
+
+        const { data: existingPackageUpdate, error: existingPackageError } = await supabase
+          .from('case_updates')
+          .select('id')
+          .eq('takedown_id', takedown.id)
+          .eq('update_type', 'custom')
+          .ilike('message', 'Enforcement handoff package prepared for legal review.%')
+          .limit(1)
+          .maybeSingle();
+
+        if (existingPackageError) {
+          addNotification('error', 'Failed to verify existing handoff package timeline entries');
+        } else if (!existingPackageUpdate) {
+          const { data: packageRow, error: packageError } = await supabase
+            .from('case_updates')
+            .insert({
+              takedown_id: takedown.id,
+              update_type: 'custom',
+              message: packageMessage,
+              created_by: 'system',
+            })
+            .select()
+            .single();
+
+          if (packageError) {
+            addNotification('error', 'Case enforced, but handoff package timeline entry failed');
+          } else if (packageRow) {
+            generatedUpdates.push({
+              id: packageRow.id,
+              caseId,
+              type: 'custom',
+              message: packageRow.message,
+              createdAt: packageRow.created_at,
+              createdBy: packageRow.created_by,
+              isRead: packageRow.is_read,
+            });
+          }
+        }
+      }
     }
 
     setInfringements(prev => prev.map(item =>
       item.id === caseId ? { ...item, status: newStatus } : item
     ));
 
-    setTakedownRequests(prev => prev.map(req =>
-      req.caseId === caseId ? {
-        ...req,
-        status: newStatus,
-        adminNotes: adminNotes || req.adminNotes,
-        processedAt: new Date().toISOString()
-      } : req
-    ));
+    setTakedownRequests(prev => {
+      const updated = prev.map(req =>
+        req.caseId === caseId ? {
+          ...req,
+          status: newStatus,
+          adminNotes: adminNotes || req.adminNotes,
+          processedAt,
+          updates: generatedUpdates.length > 0 ? [...(req.updates || []), ...generatedUpdates] : req.updates,
+        } : req
+      );
+
+      const exists = updated.some(req => req.caseId === caseId);
+      if (!exists && takedown) {
+        updated.unshift({
+          ...takedown,
+          status: newStatus,
+          adminNotes,
+          processedAt,
+          updates: generatedUpdates.length > 0 ? generatedUpdates : (takedown.updates || []),
+        });
+      }
+
+      return updated;
+    });
 
     addNotification('success', `Case status updated to ${newStatus.replace('_', ' ')}`);
     addActivity('Case Updated', `Status changed to ${newStatus.replace('_', ' ')}`, 'success');
-  }, [takedownRequests, addNotification, addActivity]);
+
+    // Create app notification for member-facing status changes
+    const appNotification = createStatusChangeNotification(caseId, caseItem.brandName, newStatus);
+    if (appNotification) {
+      addAppNotification(appNotification);
+    }
+  }, [infringements, takedownRequests, addNotification, addActivity, addAppNotification]);
 
   const getTakedownForCase = (caseId: string): TakedownRequest | undefined => {
     return takedownRequests.find(req => req.caseId === caseId);
@@ -783,6 +1859,68 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     const request = takedownRequests.find(req => req.caseId === caseId);
     return request?.updates || [];
   };
+
+  useEffect(() => {
+    if (!canLoadData || !currentBrand || isLocalDemoMode) {
+      return;
+    }
+
+    const runAutoFollowUpDrafts = async () => {
+      const nowMs = Date.now();
+      const awaitingThresholdMs = 72 * 60 * 60 * 1000;
+      const todayKey = new Date().toISOString().slice(0, 10);
+
+      for (const item of infringements) {
+        if (item.status !== 'in_progress') continue;
+
+        const request = takedownRequests.find((req) => req.caseId === item.id);
+        if (!request) continue;
+
+        const updates = request.updates || [];
+        const latestAwaiting = [...updates]
+          .reverse()
+          .find((update) => update.type === 'awaiting_response');
+
+        if (!latestAwaiting) continue;
+
+        const awaitingAtMs = Date.parse(latestAwaiting.createdAt);
+        if (!Number.isFinite(awaitingAtMs)) continue;
+        if (nowMs - awaitingAtMs < awaitingThresholdMs) continue;
+
+        const hasFollowUpAfterAwaiting = updates.some((update) => {
+          if (update.type !== 'follow_up_sent') return false;
+          const updateMs = Date.parse(update.createdAt);
+          return Number.isFinite(updateMs) && updateMs > awaitingAtMs;
+        });
+        if (hasFollowUpAfterAwaiting) continue;
+
+        const draftKey = `brandog_auto_followup_draft_${item.id}_${todayKey}`;
+        if (localStorage.getItem(draftKey) === '1') continue;
+
+        localStorage.setItem(draftKey, '1');
+
+        const draftMessage = [
+          'AI follow-up draft generated for legal review.',
+          `Case ${item.id.slice(0, 8)} has been awaiting response for over 72 hours.`,
+          `Suggested follow-up target: ${item.infringingUrl || 'target URL unavailable'}.`,
+          'Recommended next step: send follow-up notice and escalate if no response within 48 hours.',
+        ].join(' ');
+
+        await addCaseUpdate(item.id, 'custom', draftMessage, 'system');
+        addNotification('info', `AI drafted a follow-up recommendation for case ${item.id.slice(0, 8)}`);
+      }
+    };
+
+    void runAutoFollowUpDrafts();
+  }, [
+    canLoadData,
+    currentBrand?.id,
+    isLocalDemoMode,
+    infringements,
+    takedownRequests,
+    addCaseUpdate,
+    addNotification,
+  ]);
 
   const markUpdatesAsRead = useCallback(async (caseId: string) => {
     const takedown = takedownRequests.find(t => t.caseId === caseId);
@@ -925,8 +2063,11 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
         siteVisitors,
         platform,
         revenueLost,
-        status: 'detected',
+        status: 'pending_review',
         detectedAt: new Date().toISOString().split('T')[0],
+        detectionProvider: options?.detectionProvider || defaultDetectionProvider,
+        detectionMethod: options?.detectionMethod || defaultDetectionMethod,
+        sourceFingerprint: options?.sourceFingerprint || originalAsset.fingerprint,
         country: 'Unknown',
         originalAssetId: originalAsset.id,
         infringingUrl: normalizedUrl,
@@ -943,7 +2084,68 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       };
 
       setInfringements(prev => [localInfringement, ...prev]);
+      const localRequestedAt = new Date().toISOString();
+      const localUpdate: CaseUpdate = {
+        id: `local_case_update_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        caseId: localInfringement.id,
+        type: 'custom',
+        message: 'Automated detection queued this case for company review.',
+        createdAt: localRequestedAt,
+        createdBy: 'system',
+        isRead: false,
+      };
+      const localRequest: TakedownRequest = {
+        id: `local_takedown_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        caseId: localInfringement.id,
+        originalAssetId: localInfringement.originalAssetId || '',
+        infringingUrl: localInfringement.infringingUrl || '',
+        detectedDate: localInfringement.detectedAt,
+        platform: localInfringement.platform,
+        status: 'pending_review',
+        requestedAt: localRequestedAt,
+        updates: [localUpdate],
+      };
+      setTakedownRequests(prev => [localRequest, ...prev]);
       return { created: true };
+    }
+
+    const normalizedDomain = normalizeWhitelistDomain(domain) || domain.toLowerCase();
+    const whitelistCandidates = new Set<string>([
+      normalizedDomain,
+      `www.${normalizedDomain}`.replace(/^www\.www\./, 'www.'),
+    ]);
+
+    const { data: whitelistRows, error: whitelistError } = await supabase
+      .from('whitelist')
+      .select('domain')
+      .eq('brand_id', currentBrand.id);
+
+    if (whitelistError && !isMissingTableError(whitelistError)) {
+      console.error('Failed to evaluate whitelist before creating infringement:', whitelistError);
+      return { created: false, reason: 'db_error' };
+    }
+
+    if (whitelistRows && whitelistRows.length > 0) {
+      const isWhitelisted = whitelistRows.some((row) => {
+        const candidate = normalizeWhitelistDomain(row.domain || '');
+        return Boolean(candidate && whitelistCandidates.has(candidate));
+      });
+      if (isWhitelisted) {
+        return { created: false, reason: 'whitelisted' };
+      }
+    }
+
+    const { data: previousClosedCases, error: previousClosedError } = await supabase
+      .from('infringements')
+      .select('id, status, detected_at')
+      .eq('brand_id', currentBrand.id)
+      .eq('infringing_url', normalizedUrl)
+      .in('status', ['resolved', 'rejected'])
+      .order('detected_at', { ascending: false })
+      .limit(5);
+
+    if (previousClosedError) {
+      console.error('Failed to load closed case history for relisting check:', previousClosedError);
     }
 
     let existingQuery = supabase
@@ -951,6 +2153,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       .select('id')
       .eq('brand_id', currentBrand.id)
       .eq('infringing_url', normalizedUrl)
+      .in('status', ['detected', 'pending_review', 'in_progress'])
       .limit(1);
 
     if (originalAssetIdForDb) {
@@ -987,7 +2190,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       whois_registrant_country: 'Unknown',
       hosting_provider: hostingProvider,
       hosting_ip_address: 'Not resolved',
-      status: 'detected',
+      status: 'pending_review',
     };
 
     const { data, error } = await supabase
@@ -1018,7 +2221,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
           whois_registrant_country: 'Unknown',
           hosting_provider: hostingProvider,
           hosting_ip_address: 'Not resolved',
-          status: 'detected',
+          status: 'pending_review',
         })
         .select()
         .single();
@@ -1039,10 +2242,123 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       return { created: false, reason: 'db_error' };
     }
 
-    setInfringements(prev => [transformSupabaseInfringement(insertedData, currentBrand.name), ...prev]);
+    const createdCase = transformSupabaseInfringement(insertedData, currentBrand.name);
+    setInfringements(prev => [createdCase, ...prev]);
+
+    let takedownRequest: any = null;
+    const { data: existingTakedown, error: existingTakedownError } = await supabase
+      .from('takedown_requests')
+      .select('*')
+      .eq('infringement_id', insertedData.id)
+      .order('requested_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingTakedownError) {
+      console.error('Failed to check existing takedown request for auto-detected case:', existingTakedownError);
+    } else {
+      takedownRequest = existingTakedown;
+    }
+
+    if (!takedownRequest) {
+      const { data: createdTakedown, error: createTakedownError } = await supabase
+        .from('takedown_requests')
+        .insert({
+          infringement_id: insertedData.id,
+          status: 'pending_review',
+        })
+        .select()
+        .single();
+
+      if (createTakedownError) {
+        console.error('Failed to create takedown request for auto-detected case:', createTakedownError);
+      } else {
+        takedownRequest = createdTakedown;
+      }
+    }
+
+    if (takedownRequest) {
+      const initialMessage = 'Automated detection queued this case for company review.';
+      const { data: initialUpdate, error: initialUpdateError } = await supabase
+        .from('case_updates')
+        .insert({
+          takedown_id: takedownRequest.id,
+          update_type: 'custom',
+          message: initialMessage,
+          created_by: 'system',
+        })
+        .select()
+        .single();
+
+      if (initialUpdateError) {
+        console.error('Failed to create initial review update for auto-detected case:', initialUpdateError);
+      }
+
+      const initialUpdates: CaseUpdate[] = initialUpdate ? [{
+        id: initialUpdate.id,
+        caseId: insertedData.id,
+        type: 'custom',
+        message: initialUpdate.message,
+        createdAt: initialUpdate.created_at,
+        createdBy: initialUpdate.created_by,
+        isRead: initialUpdate.is_read,
+      }] : [];
+
+      if (previousClosedCases && previousClosedCases.length > 0) {
+        const priorRefs = previousClosedCases
+          .slice(0, 3)
+          .map((row) => `${row.id.slice(0, 8)} (${row.status})`)
+          .join(', ');
+        const relistingMessage = `Relisting detected. Linked prior closed cases: ${priorRefs}.`;
+        const { data: relistingUpdate, error: relistingError } = await supabase
+          .from('case_updates')
+          .insert({
+            takedown_id: takedownRequest.id,
+            update_type: 'custom',
+            message: relistingMessage,
+            created_by: 'system',
+          })
+          .select()
+          .single();
+
+        if (relistingError) {
+          console.error('Failed to write relisting linkage update:', relistingError);
+        } else if (relistingUpdate) {
+          initialUpdates.push({
+            id: relistingUpdate.id,
+            caseId: insertedData.id,
+            type: 'custom',
+            message: relistingUpdate.message,
+            createdAt: relistingUpdate.created_at,
+            createdBy: relistingUpdate.created_by,
+            isRead: relistingUpdate.is_read,
+          });
+        }
+      }
+
+      const newTakedown: TakedownRequest = {
+        id: takedownRequest.id,
+        caseId: insertedData.id,
+        originalAssetId: createdCase.originalAssetId || '',
+        infringingUrl: createdCase.infringingUrl || '',
+        detectedDate: createdCase.detectedAt,
+        platform: createdCase.platform,
+        status: 'pending_review',
+        requestedAt: takedownRequest.requested_at,
+        updates: initialUpdates,
+      };
+
+      setTakedownRequests(prev => {
+        if (prev.some(req => req.caseId === insertedData.id)) {
+          return prev;
+        }
+        return [newTakedown, ...prev];
+      });
+    }
+
     addActivity('Infringement Detected', `Found on ${result.pageTitle || domain}`, 'warning');
     return { created: true };
-  }, [currentBrand, addActivity]);
+  }, [currentBrand, isLocalDemoMode, infringements, addActivity]);
 
   const updateAssetScanState = useCallback(async (
     assetId: string,
@@ -1120,9 +2436,28 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     errorMessage?: string;
     metadata?: Record<string, unknown>;
   }) => {
-    if (!currentBrand || isLocalDemoMode) return;
+    const localEvent: ScanEventItem = {
+      id: `local_scan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      assetId: payload.assetId,
+      provider: payload.provider || GOOGLE_VISION_PROVIDER,
+      status: payload.status,
+      startedAt: payload.startedAt,
+      finishedAt: payload.finishedAt || undefined,
+      matchesFound: payload.matchesFound || 0,
+      duplicatesSkipped: payload.duplicatesSkipped || 0,
+      invalidResults: payload.invalidResults || 0,
+      failedResults: payload.failedResults || 0,
+      estimatedCostUsd: payload.estimatedCostUsd,
+      errorMessage: payload.errorMessage || undefined,
+      metadata: payload.metadata || {},
+    };
 
-    const { error } = await supabase
+    if (!currentBrand || isLocalDemoMode) {
+      setScanEvents(prev => [localEvent, ...prev]);
+      return;
+    }
+
+    const { data, error } = await supabase
       .from('scan_events')
       .insert({
         brand_id: currentBrand.id,
@@ -1138,10 +2473,18 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
         estimated_cost_usd: payload.estimatedCostUsd || null,
         error_message: payload.errorMessage || null,
         metadata: payload.metadata || {},
-      });
+      })
+      .select()
+      .single();
 
     if (error) {
       console.error('Failed to log scan event:', error);
+      setScanEvents(prev => [localEvent, ...prev]);
+      return;
+    }
+
+    if (data) {
+      setScanEvents(prev => [transformSupabaseScanEvent(data), ...prev]);
     }
   }, [currentBrand, isLocalDemoMode]);
 
@@ -1528,7 +2871,37 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
             if (existingMatchesError) {
               console.error('Failed to load reused fingerprint matches:', existingMatchesError);
             } else if (existingMatches && existingMatches.length > 0) {
-              const cloneRows = existingMatches.map((match: any) => ({
+              const normalizedUrls = existingMatches
+                .map((match: any) => normalizeExternalUrl(match.infringing_url || ''))
+                .filter((value): value is string => Boolean(value));
+
+              let existingTargetUrls = new Set<string>();
+              if (normalizedUrls.length > 0) {
+                const { data: existingTargetMatches, error: existingTargetError } = await supabase
+                  .from('infringements')
+                  .select('infringing_url')
+                  .eq('brand_id', currentBrand.id)
+                  .eq('original_asset_id', job.id)
+                  .in('infringing_url', normalizedUrls);
+
+                if (existingTargetError) {
+                  console.error('Failed to check duplicate reused fingerprint matches:', existingTargetError);
+                } else {
+                  existingTargetUrls = new Set(
+                    (existingTargetMatches || [])
+                      .map((row: any) => normalizeExternalUrl(row.infringing_url || ''))
+                      .filter((value): value is string => Boolean(value))
+                  );
+                }
+              }
+
+              const cloneRows = existingMatches
+                .filter((match: any) => {
+                  const normalizedMatchUrl = normalizeExternalUrl(match.infringing_url || '');
+                  if (!normalizedMatchUrl) return false;
+                  return !existingTargetUrls.has(normalizedMatchUrl);
+                })
+                .map((match: any) => ({
                 brand_id: currentBrand.id,
                 original_asset_id: job.id,
                 copycat_image_url: match.copycat_image_url,
@@ -1547,22 +2920,99 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
                 whois_registrant_country: match.whois_registrant_country,
                 hosting_provider: match.hosting_provider,
                 hosting_ip_address: match.hosting_ip_address,
-                status: match.status || 'detected',
+                status: 'pending_review',
               }));
 
-              const { data: clonedRows, error: cloneError } = await supabase
-                .from('infringements')
-                .insert(cloneRows)
-                .select();
+              if (cloneRows.length === 0) {
+                clonedInfringements = 0;
+              } else {
+                const { data: clonedRows, error: cloneError } = await supabase
+                  .from('infringements')
+                  .insert(cloneRows)
+                  .select();
 
-              if (cloneError) {
-                console.error('Failed to clone infringements for reused fingerprint:', cloneError);
-              } else if (clonedRows && clonedRows.length > 0) {
-                clonedInfringements = clonedRows.length;
-                setInfringements(prev => [
-                  ...clonedRows.map((row: any) => transformSupabaseInfringement(row, currentBrand.name)),
-                  ...prev,
-                ]);
+                if (cloneError) {
+                  console.error('Failed to clone infringements for reused fingerprint:', cloneError);
+                } else if (clonedRows && clonedRows.length > 0) {
+                  clonedInfringements = clonedRows.length;
+                  const createdCases = clonedRows.map((row: any) => transformSupabaseInfringement(row, currentBrand.name));
+                  setInfringements(prev => [
+                    ...createdCases,
+                    ...prev,
+                  ]);
+
+                  const { data: createdTakedowns, error: takedownError } = await supabase
+                    .from('takedown_requests')
+                    .insert(clonedRows.map((row: any) => ({
+                      infringement_id: row.id,
+                      status: 'pending_review',
+                    })))
+                    .select();
+
+                  if (takedownError) {
+                    console.error('Failed to create takedown requests for reused fingerprint matches:', takedownError);
+                  } else if (createdTakedowns && createdTakedowns.length > 0) {
+                    const initialMessage = 'Automated detection reused prior fingerprint evidence and queued this case for company review.';
+                    const { data: createdUpdates, error: updateError } = await supabase
+                      .from('case_updates')
+                      .insert(createdTakedowns.map((takedown: any) => ({
+                        takedown_id: takedown.id,
+                        update_type: 'custom',
+                        message: initialMessage,
+                        created_by: 'system',
+                      })))
+                      .select();
+
+                    if (updateError) {
+                      console.error('Failed to create initial case updates for reused fingerprint matches:', updateError);
+                    }
+
+                    const caseById = new Map(createdCases.map((item) => [item.id, item]));
+                    const updatesByTakedownId = new Map<string, CaseUpdate[]>();
+                    (createdUpdates || []).forEach((update: any) => {
+                      const mapped: CaseUpdate = {
+                        id: update.id,
+                        caseId: '',
+                        type: 'custom',
+                        message: update.message,
+                        createdAt: update.created_at,
+                        createdBy: update.created_by,
+                        isRead: update.is_read,
+                      };
+
+                      const existing = updatesByTakedownId.get(update.takedown_id) || [];
+                      updatesByTakedownId.set(update.takedown_id, [...existing, mapped]);
+                    });
+
+                    const newRequests: TakedownRequest[] = createdTakedowns.map((takedown: any) => {
+                      const caseItem = caseById.get(takedown.infringement_id);
+                      const updates = (updatesByTakedownId.get(takedown.id) || []).map((update) => ({
+                        ...update,
+                        caseId: takedown.infringement_id,
+                      }));
+
+                      return {
+                        id: takedown.id,
+                        caseId: takedown.infringement_id,
+                        originalAssetId: caseItem?.originalAssetId || '',
+                        infringingUrl: caseItem?.infringingUrl || '',
+                        detectedDate: caseItem?.detectedAt || takedown.requested_at?.split('T')[0] || '',
+                        platform: (caseItem?.platform || 'Website') as PlatformType,
+                        status: 'pending_review',
+                        requestedAt: takedown.requested_at,
+                        updates,
+                      };
+                    });
+
+                    setTakedownRequests(prev => {
+                      const existingCaseIds = new Set(prev.map((req) => req.caseId));
+                      return [
+                        ...newRequests.filter((req) => !existingCaseIds.has(req.caseId)),
+                        ...prev,
+                      ];
+                    });
+                  }
+                }
               }
             }
 
@@ -1626,6 +3076,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
 
       let createdCount = 0;
       let duplicateCount = 0;
+      let whitelistedCount = 0;
       let invalidUrlCount = 0;
       let failedCount = 0;
 
@@ -1650,6 +3101,8 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
           createdCount += 1;
         } else if (creationResult.reason === 'duplicate') {
           duplicateCount += 1;
+        } else if (creationResult.reason === 'whitelisted') {
+          whitelistedCount += 1;
         } else if (creationResult.reason === 'invalid_url') {
           invalidUrlCount += 1;
         } else {
@@ -1688,6 +3141,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
           fullMatchingImages: searchResults.fullMatchingImages.length,
           partialMatchingImages: searchResults.partialMatchingImages.length,
           visuallySimilarImages: searchResults.visuallySimilarImages.length,
+          whitelistedSkipped: whitelistedCount,
           noMatchStreak,
           worker: true,
         },
@@ -1944,6 +3398,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
 
           let createdCount = 0;
           let duplicateCount = 0;
+          let whitelistedCount = 0;
           let invalidUrlCount = 0;
           let failedCount = 0;
 
@@ -1966,6 +3421,8 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
                 createdCount++;
               } else if (creationResult.reason === 'duplicate') {
                 duplicateCount++;
+              } else if (creationResult.reason === 'whitelisted') {
+                whitelistedCount++;
               } else if (creationResult.reason === 'invalid_url') {
                 invalidUrlCount++;
               } else {
@@ -2002,6 +3459,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
               fullMatchingImages: searchResults.fullMatchingImages.length,
               partialMatchingImages: searchResults.partialMatchingImages.length,
               visuallySimilarImages: searchResults.visuallySimilarImages.length,
+              whitelistedSkipped: whitelistedCount,
               mode: 'local_demo',
             },
           });
@@ -2014,6 +3472,10 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
 
           if (duplicateCount > 0) {
             addNotification('info', `Skipped ${duplicateCount} match${duplicateCount > 1 ? 'es' : ''} already tracked for this asset`);
+          }
+
+          if (whitelistedCount > 0) {
+            addNotification('info', `Skipped ${whitelistedCount} match${whitelistedCount > 1 ? 'es' : ''} due to whitelist rules`);
           }
 
           if (invalidUrlCount > 0 || failedCount > 0) {
@@ -2319,9 +3781,40 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
   }, []);
 
   const resetData = async () => {
-    if (!currentBrand) return;
+    if (isLocalDemoMode || !currentBrand) {
+      setInfringements([]);
+      setKeywords([]);
+      setAssets([]);
+      setTakedownRequests([]);
+      setScanEvents([]);
+      setRecentActivity([]);
+      localStorage.removeItem(DEMO_SEED_STORAGE_KEY);
+      addNotification('success', 'Local demo data reset');
+      return;
+    }
 
     // Delete all data for current brand from Supabase
+    const { data: infringementRows } = await supabase
+      .from('infringements')
+      .select('id')
+      .eq('brand_id', currentBrand.id);
+    const infringementIds = (infringementRows || []).map((row) => row.id);
+
+    if (infringementIds.length > 0) {
+      const { data: takedownRows } = await supabase
+        .from('takedown_requests')
+        .select('id')
+        .in('infringement_id', infringementIds);
+      const takedownIds = (takedownRows || []).map((row) => row.id);
+
+      if (takedownIds.length > 0) {
+        await supabase.from('case_updates').delete().in('takedown_id', takedownIds);
+      }
+
+      await supabase.from('takedown_requests').delete().in('infringement_id', infringementIds);
+    }
+
+    await supabase.from('scan_events').delete().eq('brand_id', currentBrand.id);
     await supabase.from('infringements').delete().eq('brand_id', currentBrand.id);
     await supabase.from('keywords').delete().eq('brand_id', currentBrand.id);
     await supabase.from('assets').delete().eq('brand_id', currentBrand.id);
@@ -2331,6 +3824,8 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     setKeywords([]);
     setAssets([]);
     setTakedownRequests([]);
+    setScanEvents([]);
+    setRecentActivity([]);
 
     addNotification('success', 'All data has been reset');
   };
@@ -2341,6 +3836,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       keywords,
       notifications,
       recentActivity,
+      scanEvents,
       isMobileMenuOpen,
       toggleMobileMenu,
       theme,
@@ -2348,12 +3844,19 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       isLoading,
       isConfigured,
       reportInfringement,
+      reportInfringementBulk,
       dismissInfringement,
+      dismissInfringementBulk,
       undoInfringementStatus,
+      setInfringementPriority,
+      respondToAdminRequest,
+      withdrawRequest,
+      requestRetry,
       addKeyword,
       deleteKeyword,
       addNotification,
       removeNotification,
+      populateDummyData,
       resetData,
       assets,
       assetsLoading,
