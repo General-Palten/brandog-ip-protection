@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import RuntimeConfigInjector from '@/components/RuntimeConfigInjector';
 
 // Force dynamic rendering so runtime env vars are read on each request
 export const dynamic = 'force-dynamic';
@@ -17,10 +16,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>
-        <RuntimeConfigInjector />
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

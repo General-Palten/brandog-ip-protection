@@ -1,5 +1,7 @@
-import App from '@/App';
+import AppWithConfig from '@/components/AppWithConfig';
+import { getServerRuntimeConfig } from '@/lib/runtime-config';
 
 export default function ConsolePage() {
-  return <App />;
+  const config = getServerRuntimeConfig();
+  return <AppWithConfig runtimeConfig={config} />;
 }
