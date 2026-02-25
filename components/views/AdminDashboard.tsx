@@ -188,10 +188,10 @@ const AdminDashboard: React.FC = () => {
 
   // Stats - count all cases by status
   const stats = useMemo(() => ({
-    pending_review: infringements.filter(i => i.status === 'pending_review').length,
+    pending_review: infringements.filter(i => i.status === 'pending_review' || i.status === 'needs_member_input').length,
     in_progress: infringements.filter(i => i.status === 'in_progress').length,
-    resolved: infringements.filter(i => i.status === 'resolved').length,
-    rejected: infringements.filter(i => i.status === 'rejected').length,
+    resolved: infringements.filter(i => i.status === 'resolved_success' || i.status === 'resolved_partial' || i.status === 'resolved_failed').length,
+    dismissed: infringements.filter(i => i.status === 'dismissed_by_member' || i.status === 'dismissed_by_admin').length,
   }), [infringements]);
 
   const normalizeWhitelistDomain = (input: string): string | null => {
@@ -436,9 +436,9 @@ const AdminDashboard: React.FC = () => {
         <div className="p-4 bg-surface border border-border rounded-lg">
           <div className="flex items-center gap-2 mb-2">
             <XCircle size={14} className="text-gray-500" />
-            <p className="text-xs text-secondary uppercase tracking-wider">Rejected</p>
+            <p className="text-xs text-secondary uppercase tracking-wider">Dismissed</p>
           </div>
-          <p className="text-3xl font-mono font-bold text-primary">{stats.rejected}</p>
+          <p className="text-3xl font-mono font-bold text-primary">{stats.dismissed}</p>
         </div>
       </div>
 
