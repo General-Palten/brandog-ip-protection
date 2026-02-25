@@ -1,3 +1,4 @@
+import Script from 'next/script';
 import { getServerRuntimeConfig } from '@/lib/runtime-config';
 
 /**
@@ -9,7 +10,9 @@ export default function RuntimeConfigInjector() {
   const config = getServerRuntimeConfig();
 
   return (
-    <script
+    <Script
+      id="runtime-config"
+      strategy="beforeInteractive"
       dangerouslySetInnerHTML={{
         __html: `window.__RUNTIME_CONFIG__ = ${JSON.stringify(config)};`,
       }}
