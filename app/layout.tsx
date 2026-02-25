@@ -1,5 +1,9 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import RuntimeConfigInjector from '@/components/RuntimeConfigInjector';
+
+// Force dynamic rendering so runtime env vars are read on each request
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Brandog',
@@ -13,6 +17,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <RuntimeConfigInjector />
+      </head>
       <body>{children}</body>
     </html>
   );

@@ -1,36 +1,52 @@
+/**
+ * Runtime configuration that works both server-side and client-side.
+ *
+ * Server-side: Reads directly from process.env (works at runtime)
+ * Client-side: Reads from window.__RUNTIME_CONFIG__ injected by the server
+ */
+
+export interface RuntimeConfig {
+  bypassAuth: boolean;
+  bypassRole: 'admin' | 'brand';
+}
+
+// Server-side: read directly from env vars
+export function getServerRuntimeConfig(): RuntimeConfig {
+  return {
+    bypassAuth: process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true',
+    bypassRole: process.env.NEXT_PUBLIC_BYPASS_ROLE === 'admin' ? 'admin' : 'brand',
+  };
+}
+
+// Client-side: read from injected window variable
+function getClientRuntimeConfig(): RuntimeConfig {
+  if (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__) {
+    return (window as any).__RUNTIME_CONFIG__ as RuntimeConfig;
+  }
+
+  // Fallback to build-time env vars if server injection hasn't happened
+  return {
+    bypassAuth: process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true',
+    bypassRole: process.env.NEXT_PUBLIC_BYPASS_ROLE === 'admin' ? 'admin' : 'brand',
+  };
+}
+
+// Universal getter - works on both server and client
+function getRuntimeConfig(): RuntimeConfig {
+  if (typeof window === 'undefined') {
+    // Server-side
+    return getServerRuntimeConfig();
+  }
+  // Client-side
+  return getClientRuntimeConfig();
+}
+
 export const isBypassAuthEnabled = (): boolean => {
-  // Check env var first (embedded at build time)
-  if (process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true') {
-    return true;
-  }
-
-  // Fallback: check URL parameter for demo mode (?bypass=true)
-  if (typeof window !== 'undefined') {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('bypass') === 'true') {
-      return true;
-    }
-  }
-
-  return false;
+  return getRuntimeConfig().bypassAuth;
 };
 
 export const getBypassRole = (): 'admin' | 'brand' => {
-  // Check env var first
-  if (process.env.NEXT_PUBLIC_BYPASS_ROLE === 'admin') {
-    return 'admin';
-  }
-
-  // Fallback: check URL parameter (?role=admin or ?role=brand)
-  if (typeof window !== 'undefined') {
-    const urlParams = new URLSearchParams(window.location.search);
-    const roleParam = urlParams.get('role');
-    if (roleParam === 'admin') {
-      return 'admin';
-    }
-  }
-
-  return 'brand';
+  return getRuntimeConfig().bypassRole;
 };
 
 export const isSupabaseEnvConfigured = (): boolean => {
