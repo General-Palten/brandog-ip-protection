@@ -401,7 +401,7 @@ const EnforcingWorkspace: React.FC<EnforcingWorkspaceProps> = ({ mode = 'lawyer'
       );
       await updateTakedownStatus(
         selected.infringement.id,
-        'resolved',
+        'resolved_success',
         `Closure reason: ${closureReason}. Outcome source: platform_removed.`,
         'lawyer_resolve'
       );
@@ -418,12 +418,12 @@ const EnforcingWorkspace: React.FC<EnforcingWorkspaceProps> = ({ mode = 'lawyer'
       await addCaseUpdate(
         selected.infringement.id,
         'case_closed',
-        `Case closed as rejected. Reason: ${closureReason}.`,
+        `Case closed as dismissed. Reason: ${closureReason}.`,
         'lawyer'
       );
       await updateTakedownStatus(
         selected.infringement.id,
-        'rejected',
+        'resolved_failed',
         `Closure reason: ${closureReason}. Outcome source: platform_denied.`,
         'lawyer_reject'
       );
@@ -442,13 +442,13 @@ const EnforcingWorkspace: React.FC<EnforcingWorkspaceProps> = ({ mode = 'lawyer'
   const handleResolve = async () => {
     if (!selected) return;
     const notes = `Resolved by legal team. Reason: ${closureReason}.`;
-    await updateTakedownStatus(selected.infringement.id, 'resolved', notes, 'lawyer_resolve');
+    await updateTakedownStatus(selected.infringement.id, 'resolved_success', notes, 'lawyer_resolve');
   };
 
   const handleReject = async () => {
     if (!selected) return;
-    const notes = `Closed as rejected by legal team. Reason: ${closureReason}.`;
-    await updateTakedownStatus(selected.infringement.id, 'rejected', notes, 'lawyer_reject');
+    const notes = `Closed as dismissed by legal team. Reason: ${closureReason}.`;
+    await updateTakedownStatus(selected.infringement.id, 'dismissed_by_admin', notes, 'lawyer_reject');
   };
 
   const getAICopilotHints = (entry: EnforcingCase): string[] => {
