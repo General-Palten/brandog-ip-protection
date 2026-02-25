@@ -13,7 +13,7 @@ import AuthScreen from './components/AuthScreen';
 import OnboardingScreen from './components/OnboardingScreen';
 import NotificationBell from './components/NotificationBell';
 import { InfringementItem } from './types';
-import { User, Shield, CreditCard, LogOut, Building2, Scale, ArrowRight, Loader2 } from 'lucide-react';
+import { User, Shield, CreditCard, LogOut, Building2, Scale, ArrowRight, Loader2, Bell } from 'lucide-react';
 import { isSupabaseConfigured } from './lib/supabase';
 
 // Views
