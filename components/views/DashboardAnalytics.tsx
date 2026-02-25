@@ -1119,7 +1119,7 @@ const DashboardAnalytics: React.FC = () => {
           }}
           item={selectedItem}
           onConfirm={reportInfringement}
-          onDismiss={dismissInfringement}
+          onDismiss={(id) => dismissInfringement(id, 'other')}
         />
       )}
     </div>
