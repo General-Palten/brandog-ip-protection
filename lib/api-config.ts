@@ -1,5 +1,7 @@
 // Reverse image search provider configuration (local browser storage).
 
+import { isSerpApiServerKeyEnabled } from './runtime-config';
+
 const STORAGE_KEY = 'brandog_image_search_config';
 const LEGACY_STORAGE_KEY = 'brandog_vision_config';
 
@@ -13,9 +15,12 @@ export interface VisionConfig {
   isConfigured: boolean;
 }
 
-const SERVER_MANAGED_SERPAPI_FLAG = process.env.NEXT_PUBLIC_SERPAPI_SERVER_KEY === 'true';
+// Use runtime config for server-managed SERPAPI flag (supports runtime env vars)
+const getServerManagedFlag = (): boolean => isSerpApiServerKeyEnabled();
+
 // Auto-select SERPAPI when server key is configured, otherwise fall back to Google Vision
-const DEFAULT_PROVIDER: ImageSearchProvider = SERVER_MANAGED_SERPAPI_FLAG ? 'serpapi_lens' : 'google_vision';
+const getDefaultProvider = (): ImageSearchProvider =>
+  getServerManagedFlag() ? 'serpapi_lens' : 'google_vision';
 
 const getActiveKey = (
   provider: ImageSearchProvider,
@@ -31,24 +36,26 @@ const isProviderConfigured = (
   serpApiKey: string
 ): boolean => {
   if (provider === 'serpapi_lens') {
-    return serpApiKey.length > 0 || SERVER_MANAGED_SERPAPI_FLAG;
+    return serpApiKey.length > 0 || getServerManagedFlag();
   }
 
   return googleVisionApiKey.length > 0;
 };
 
 export function getVisionConfig(): VisionConfig {
+  const serverManaged = getServerManagedFlag();
+  const defaultProvider = getDefaultProvider();
+
   try {
     const stored = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!stored) {
       // No local config - check if server-managed SERPAPI is available
-      const isConfigured = SERVER_MANAGED_SERPAPI_FLAG;
       return {
-        provider: DEFAULT_PROVIDER,
+        provider: defaultProvider,
         apiKey: '',
         googleVisionApiKey: '',
         serpApiKey: '',
-        isConfigured,
+        isConfigured: serverManaged,
       };
     }
 
@@ -59,7 +66,7 @@ export function getVisionConfig(): VisionConfig {
       serpApiKey?: string;
     };
 
-    const provider = parsed.provider === 'serpapi_lens' ? 'serpapi_lens' : DEFAULT_PROVIDER;
+    const provider = parsed.provider === 'serpapi_lens' ? 'serpapi_lens' : defaultProvider;
     // Legacy migration: older builds only stored `apiKey`.
     const legacyKey = typeof parsed.apiKey === 'string' ? parsed.apiKey : '';
     const googleVisionApiKey = (parsed.googleVisionApiKey || legacyKey || '').trim();
@@ -76,18 +83,18 @@ export function getVisionConfig(): VisionConfig {
     };
   } catch {
     return {
-      provider: DEFAULT_PROVIDER,
+      provider: getDefaultProvider(),
       apiKey: '',
       googleVisionApiKey: '',
       serpApiKey: '',
-      isConfigured: false,
+      isConfigured: getServerManagedFlag(),
     };
   }
 }
 
 export function saveVisionConfig(apiKey: string, provider?: ImageSearchProvider): void {
   const current = getVisionConfig();
-  const nextProvider = provider || current.provider || DEFAULT_PROVIDER;
+  const nextProvider = provider || current.provider || getDefaultProvider();
 
   const googleVisionApiKey = nextProvider === 'google_vision'
     ? apiKey.trim()
@@ -126,5 +133,5 @@ export function isVisionConfigured(): boolean {
 }
 
 export function isServerManagedSerpApiEnabled(): boolean {
-  return SERVER_MANAGED_SERPAPI_FLAG;
+  return getServerManagedFlag();
 }
