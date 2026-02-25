@@ -211,8 +211,9 @@ const AdminDashboard: React.FC = () => {
     if (!caseItem) return;
 
     const transitionAction = inferCaseTransitionAction(caseItem.status, status);
-    const normalizedNotes = (status === 'resolved' || status === 'rejected')
-      ? (adminNotes.trim() || `Closure reason: marked ${status.replace('_', ' ')} by reviewer`)
+    const isClosingStatus = status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed' || status === 'dismissed_by_admin';
+    const normalizedNotes = isClosingStatus
+      ? (adminNotes.trim() || `Closure reason: marked ${status.replace(/_/g, ' ')} by reviewer`)
       : adminNotes;
     updateTakedownStatus(caseId, status, normalizedNotes, transitionAction);
     setSelectedCase(null);
@@ -255,7 +256,7 @@ const AdminDashboard: React.FC = () => {
       ? adminNotes
       : `Whitelisted trusted entity (${whitelistDomain})`;
     const transitionAction = 'company_whitelist';
-    updateTakedownStatus(caseId, 'rejected', nextNotes, transitionAction);
+    updateTakedownStatus(caseId, 'dismissed_by_admin', nextNotes, transitionAction);
     setSelectedCase(null);
     setAdminNotes('');
   };
@@ -286,23 +287,24 @@ const AdminDashboard: React.FC = () => {
   const handleBulkAction = (status: InfringementStatus) => {
     const actionLabel = status === 'in_progress'
       ? 'move selected cases to In Progress'
-      : status === 'resolved'
+      : status === 'resolved_success'
         ? 'resolve selected cases'
-        : status === 'rejected'
-          ? 'reject selected cases'
-          : `change selected cases to ${status.replace('_', ' ')}`;
+        : status === 'dismissed_by_admin'
+          ? 'dismiss selected cases'
+          : `change selected cases to ${status.replace(/_/g, ' ')}`;
 
     if (!window.confirm(`Confirm bulk action: ${actionLabel}?`)) {
       return;
     }
 
+    const isClosingStatus = status === 'resolved_success' || status === 'resolved_partial' || status === 'resolved_failed' || status === 'dismissed_by_admin';
     selectedCases.forEach(caseId => {
       const caseItem = infringements.find(item => item.id === caseId);
       if (!caseItem) return;
 
       const transitionAction = inferCaseTransitionAction(caseItem.status, status);
-      const normalizedNotes = (status === 'resolved' || status === 'rejected')
-        ? `Closure reason: bulk action marked ${status.replace('_', ' ')}`
+      const normalizedNotes = isClosingStatus
+        ? `Closure reason: bulk action marked ${status.replace(/_/g, ' ')}`
         : '';
       updateTakedownStatus(caseId, status, normalizedNotes, transitionAction);
     });
@@ -455,18 +457,18 @@ const AdminDashboard: React.FC = () => {
               Enforce
             </button>
             <button
-              onClick={() => handleBulkAction('resolved')}
+              onClick={() => handleBulkAction('resolved_success')}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-500/10 border border-green-500/30 rounded text-green-500 hover:bg-green-500/20 transition-colors"
             >
               <CheckCircle size={12} />
               Resolve
             </button>
             <button
-              onClick={() => handleBulkAction('rejected')}
+              onClick={() => handleBulkAction('dismissed_by_admin')}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-500/10 border border-red-500/30 rounded text-red-500 hover:bg-red-500/20 transition-colors"
             >
               <XCircle size={12} />
-              Reject
+              Dismiss
             </button>
           </div>
           <button
@@ -650,7 +652,7 @@ const AdminDashboard: React.FC = () => {
                               <PlayCircle size={14} />
                             </button>
                             <button
-                              onClick={() => handleStatusUpdate(item.id, 'rejected')}
+                              onClick={() => handleStatusUpdate(item.id, 'dismissed_by_admin')}
                               className="p-1.5 hover:bg-red-500/10 border border-border rounded text-red-500 transition-colors"
                               title="Dismiss"
                             >
@@ -668,22 +670,22 @@ const AdminDashboard: React.FC = () => {
                         {item.status === 'in_progress' && (
                           <>
                             <button
-                              onClick={() => handleStatusUpdate(item.id, 'resolved')}
+                              onClick={() => handleStatusUpdate(item.id, 'resolved_success')}
                               className="p-1.5 hover:bg-green-500/10 border border-border rounded text-green-500 transition-colors"
                               title="Mark Resolved"
                             >
                               <CheckCircle size={14} />
                             </button>
                             <button
-                              onClick={() => handleStatusUpdate(item.id, 'rejected')}
+                              onClick={() => handleStatusUpdate(item.id, 'dismissed_by_admin')}
                               className="p-1.5 hover:bg-red-500/10 border border-border rounded text-red-500 transition-colors"
-                              title="Reject"
+                              title="Dismiss"
                             >
                               <XCircle size={14} />
                             </button>
                           </>
                         )}
-                        {(item.status === 'resolved' || item.status === 'rejected') && (
+                        {(item.status === 'resolved_success' || item.status === 'resolved_partial' || item.status === 'resolved_failed' || item.status === 'dismissed_by_admin' || item.status === 'dismissed_by_member') && (
                           <button
                             onClick={() => handleStatusUpdate(item.id, 'detected')}
                             className="p-1.5 hover:bg-blue-500/10 border border-border rounded text-blue-500 transition-colors"
@@ -908,7 +910,7 @@ const AdminDashboard: React.FC = () => {
                     variant="ghost"
                     icon={XCircle}
                     className="text-red-500 hover:bg-red-500/10"
-                    onClick={() => handleStatusUpdate(selectedCase.id, 'rejected')}
+                    onClick={() => handleStatusUpdate(selectedCase.id, 'dismissed_by_admin')}
                   >
                     Dismiss
                   </Button>
@@ -927,7 +929,7 @@ const AdminDashboard: React.FC = () => {
                   <Button
                     variant="primary"
                     icon={CheckCircle}
-                    onClick={() => handleStatusUpdate(selectedCase.id, 'resolved')}
+                    onClick={() => handleStatusUpdate(selectedCase.id, 'resolved_success')}
                   >
                     Mark Resolved
                   </Button>
@@ -935,13 +937,13 @@ const AdminDashboard: React.FC = () => {
                     variant="ghost"
                     icon={XCircle}
                     className="text-red-500 hover:bg-red-500/10"
-                    onClick={() => handleStatusUpdate(selectedCase.id, 'rejected')}
+                    onClick={() => handleStatusUpdate(selectedCase.id, 'dismissed_by_admin')}
                   >
-                    Reject
+                    Dismiss
                   </Button>
                 </>
               )}
-              {(selectedCase.status === 'resolved' || selectedCase.status === 'rejected') && (
+              {(selectedCase.status === 'resolved_success' || selectedCase.status === 'resolved_partial' || selectedCase.status === 'resolved_failed' || selectedCase.status === 'dismissed_by_admin' || selectedCase.status === 'dismissed_by_member') && (
                 <>
                   <div className="flex-1 p-3 bg-surface border border-border rounded-lg text-center text-sm text-secondary">
                     This case has been {selectedCase.status}.
