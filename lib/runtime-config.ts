@@ -1,5 +1,5 @@
 export const isBypassAuthEnabled = (): boolean => {
-  return process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true';
+  return process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true';
 };
 
 export const getBypassRole = (): 'admin' | 'brand' => {
