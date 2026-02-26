@@ -2,20 +2,6 @@ import React, { useState, useRef } from 'react';
 import { Shield, Building2, Loader2, ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-};
-
 const OnboardingScreen: React.FC = () => {
   const { createBrand, setCurrentBrandId, user, refreshBrands } = useAuth();
   const [brandName, setBrandName] = useState('');
@@ -33,11 +19,7 @@ const OnboardingScreen: React.FC = () => {
     setError(null);
 
     try {
-      const { data, error: createError } = await withTimeout(
-        createBrand(brandName.trim(), websiteUrl.trim() || undefined),
-        25000,
-        'Brand creation request timed out. Please try again.'
-      );
+      const { data, error: createError } = await createBrand(brandName.trim(), websiteUrl.trim() || undefined);
 
       if (createError) {
         // If AbortError, check if brand was actually created by refreshing
@@ -59,11 +41,7 @@ const OnboardingScreen: React.FC = () => {
         setError('Brand creation request was interrupted. Retry once.');
         return;
       }
-      if (typeof err?.message === 'string' && err.message.toLowerCase().includes('timed out')) {
-        setError('Brand creation timed out. Please try again.');
-      } else {
-        setError('Failed to create brand. Please try again.');
-      }
+      setError('Failed to create brand. Please try again.');
     } finally {
       setIsCreating(false);
       isSubmitting.current = false;

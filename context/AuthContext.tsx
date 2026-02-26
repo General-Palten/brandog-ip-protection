@@ -91,6 +91,8 @@ const isAbortLikeError = (error: unknown): boolean => {
   return maybeError.name === 'AbortError' || message.includes('aborted')
 }
 
+const BRAND_DB_TIMEOUT_MS = 30000
+
 const withTimeout = async <T,>(promise: PromiseLike<T>, timeoutMs: number, label: string): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   try {
@@ -403,7 +405,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           user.email,
           user.user_metadata?.full_name
         ),
-        15000,
+        BRAND_DB_TIMEOUT_MS,
         'Profile initialization'
       )
       if (activeProfile) {
@@ -438,7 +440,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               slug,
               website_url: normalizedWebsiteUrl,
             }),
-          15000,
+          BRAND_DB_TIMEOUT_MS,
           'Brand insert'
         )
 
@@ -451,22 +453,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           break
         }
 
-        // Fetch inserted row when possible, but don't block onboarding if select is restricted.
-        const { data: fetchedBrand, error: fetchInsertedError } = await withTimeout<any>(
-          supabase
-            .from('brands')
-            .select('*')
-            .eq('id', brandId)
-            .maybeSingle(),
-          15000,
-          'Brand fetch'
-        )
-
-        if (fetchInsertedError) {
-          console.warn('Created brand but failed to fetch inserted row:', fetchInsertedError.message)
-        }
-
-        createdBrand = fetchedBrand || {
+        createdBrand = {
           id: brandId,
           owner_id: user.id,
           name: trimmedName,
@@ -497,14 +484,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { data: createdBrand, error: null }
     } catch (err: any) {
       console.error('Create brand exception:', err)
-      return { data: null, error: new Error(err?.message || 'Failed to create brand') }
+      return { data: null, error: new Error(mapCreateBrandErrorMessage(err?.message || 'Failed to create brand')) }
     }
   }
 
   // Refresh brands
   const refreshBrands = async () => {
     if (user) {
-      await withTimeout(fetchBrands(user.id), 15000, 'Brand list refresh')
+      await withTimeout(fetchBrands(user.id), BRAND_DB_TIMEOUT_MS, 'Brand list refresh')
     }
   }
 
