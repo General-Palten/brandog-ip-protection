@@ -599,10 +599,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
   const currentBrandIdRef = useRef<string | null>(null);
 
   // Theme - white/light default with local persistence
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    if (typeof window === 'undefined') return 'light';
-    return localStorage.getItem('brandog-theme') === 'dark' ? 'dark' : 'light';
-  });
+  const [theme, setTheme] = useState<'dark' | 'light'>('light');
 
   // All data from Supabase
   const [infringements, setInfringements] = useState<InfringementItem[]>([]);
@@ -784,6 +781,14 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       setScanEvents([]);
     }
   }, [currentBrand?.id]);
+
+  // Load theme from localStorage after hydration
+  useEffect(() => {
+    const saved = localStorage.getItem('brandog-theme');
+    if (saved === 'dark' || saved === 'light') {
+      setTheme(saved);
+    }
+  }, []);
 
   // Theme effect (UI only)
   useEffect(() => {

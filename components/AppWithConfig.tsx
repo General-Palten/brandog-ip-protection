@@ -14,10 +14,5 @@ export default function AppWithConfig({ runtimeConfig }: AppWithConfigProps) {
     (window as any).__RUNTIME_CONFIG__ = runtimeConfig;
   }, [runtimeConfig]);
 
-  // Also set it immediately (before first render of child components)
-  if (typeof window !== 'undefined') {
-    (window as any).__RUNTIME_CONFIG__ = runtimeConfig;
-  }
-
   return <App />;
 }

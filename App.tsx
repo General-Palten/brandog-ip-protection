@@ -143,13 +143,15 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [selectedNotificationCase, setSelectedNotificationCase] = useState<InfringementItem | null>(null);
   const [isAIDrawerOpen, setIsAIDrawerOpen] = useState(false);
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('sidebarExpanded');
-      return saved === 'true';
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+
+  // Load sidebar state from localStorage after hydration
+  useEffect(() => {
+    const saved = localStorage.getItem('sidebarExpanded');
+    if (saved === 'true') {
+      setIsSidebarExpanded(true);
     }
-    return false;
-  });
+  }, []);
 
   useEffect(() => {
     if (!isAdminMode && activeSidebarTab === 'admin') {
@@ -413,13 +415,15 @@ const AppContent: React.FC = () => {
   const bypassRole = getBypassRole();
 
   // Legacy role state for demo mode (when Supabase not configured)
-  const [demoRole, setDemoRole] = useState<UserRole>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = sessionStorage.getItem('userRole');
-      return (saved === 'brand' || saved === 'admin') ? saved : null;
+  const [demoRole, setDemoRole] = useState<UserRole>(null);
+
+  // Load demo role from sessionStorage after hydration
+  useEffect(() => {
+    const saved = sessionStorage.getItem('userRole');
+    if (saved === 'brand' || saved === 'admin') {
+      setDemoRole(saved);
     }
-    return null;
-  });
+  }, []);
 
   if (bypassAuth) {
     return (
