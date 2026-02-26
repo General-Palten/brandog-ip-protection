@@ -24,6 +24,10 @@ Brand protection console with a public marketing site and authenticated `/app` w
 4. Run the app:
    `npm run dev`
 
+Auth troubleshooting:
+- `Failed to execute 'fetch' on 'Window': Invalid value` during sign-in usually means malformed Supabase env vars (extra quotes or hidden newline characters).
+- Ensure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are plain values (no wrapping quotes, no line breaks).
+
 ## Scan Worker (Server Cron)
 
 Trigger periodic scans server-side by calling:

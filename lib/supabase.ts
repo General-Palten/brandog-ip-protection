@@ -1,10 +1,12 @@
 import { createBrowserClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isLikelyHttpUrl, sanitizeEnvValue } from './supabase-env'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+const supabaseUrl = sanitizeEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL)
+const supabaseAnonKey = sanitizeEnvValue(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+const hasValidSupabaseUrl = isLikelyHttpUrl(supabaseUrl)
 
-if (typeof window !== 'undefined' && (!supabaseUrl || !supabaseAnonKey)) {
+if (typeof window !== 'undefined' && (!supabaseUrl || !supabaseAnonKey || !hasValidSupabaseUrl)) {
   console.warn('Missing Supabase environment variables. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local')
 }
 
@@ -18,7 +20,7 @@ const createPlaceholderClient = (): SupabaseClient<any> =>
 
 export const supabase = (() => {
   if (browserClient) return browserClient
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseUrl || !supabaseAnonKey || !hasValidSupabaseUrl) {
     browserClient = createPlaceholderClient()
     return browserClient
   }
@@ -29,6 +31,6 @@ export const supabase = (() => {
 
 // Helper to check if Supabase is properly configured
 export const isSupabaseConfigured = (): boolean => {
-  return !!(supabaseUrl && supabaseAnonKey &&
+  return !!(supabaseUrl && supabaseAnonKey && hasValidSupabaseUrl &&
     supabaseUrl !== 'https://placeholder.supabase.co')
 }

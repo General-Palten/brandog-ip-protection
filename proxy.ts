@@ -2,9 +2,12 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import type { Database } from '@/lib/database.types';
 import { isBypassAuthEnabled, isSupabaseEnvConfigured } from '@/lib/runtime-config';
+import { isLikelyHttpUrl, sanitizeEnvValue } from '@/lib/supabase-env';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = sanitizeEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const SUPABASE_ANON_KEY = sanitizeEnvValue(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+const FALLBACK_SUPABASE_URL = 'https://placeholder.supabase.co';
+const FALLBACK_SUPABASE_ANON = 'placeholder-key';
 
 export async function proxy(request: NextRequest) {
   if (!isSupabaseEnvConfigured() || isBypassAuthEnabled()) {
@@ -16,8 +19,10 @@ export async function proxy(request: NextRequest) {
       headers: request.headers,
     },
   });
+  const resolvedUrl = isLikelyHttpUrl(SUPABASE_URL) ? SUPABASE_URL : FALLBACK_SUPABASE_URL;
+  const resolvedAnon = SUPABASE_ANON_KEY || FALLBACK_SUPABASE_ANON;
 
-  const supabase = createServerClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  const supabase = createServerClient<Database>(resolvedUrl, resolvedAnon, {
     cookies: {
       getAll() {
         return request.cookies.getAll();
