@@ -4,6 +4,33 @@ import { useAuth } from '../context/AuthContext'
 
 type AuthMode = 'login' | 'signup' | 'forgot-password'
 
+const mapFriendlyAuthError = (message: string, mode: AuthMode): string => {
+  const raw = (message || '').trim()
+  const lower = raw.toLowerCase()
+
+  if (lower.includes('invalid login credentials')) {
+    return 'Email or password is incorrect. If this is a new account, confirm your email first.'
+  }
+
+  if (lower.includes('email not confirmed') || lower.includes('email address not confirmed')) {
+    return 'Please confirm your email address first, then try signing in.'
+  }
+
+  if (lower.includes('signup is disabled')) {
+    return 'Sign-up is currently disabled in Supabase Authentication settings.'
+  }
+
+  if (lower.includes('password should be at least')) {
+    return 'Password must be at least 6 characters.'
+  }
+
+  if (mode === 'login' && !raw) {
+    return 'Sign-in failed. Please verify your email and password.'
+  }
+
+  return raw || 'Authentication failed. Please try again.'
+}
+
 const AuthScreen: React.FC = () => {
   const { signIn, signUp, resetPassword, isConfigured } = useAuth()
 
@@ -24,12 +51,13 @@ const AuthScreen: React.FC = () => {
     console.log('Form submitted, mode:', mode)
 
     try {
+      const normalizedEmail = email.trim().toLowerCase()
       if (mode === 'login') {
         console.log('Attempting sign in with:', email)
-        const { error } = await signIn(email, password)
+        const { error } = await signIn(normalizedEmail, password)
         console.log('Sign in result:', error ? error.message : 'Success')
         if (error) {
-          setError(error.message)
+          setError(mapFriendlyAuthError(error.message, mode))
         }
       } else if (mode === 'signup') {
         if (!fullName.trim()) {
@@ -37,17 +65,17 @@ const AuthScreen: React.FC = () => {
           setLoading(false)
           return
         }
-        const { error } = await signUp(email, password, fullName)
+        const { error } = await signUp(normalizedEmail, password, fullName)
         if (error) {
-          setError(error.message)
+          setError(mapFriendlyAuthError(error.message, mode))
         } else {
           setSuccess('Check your email to confirm your account')
           setMode('login')
         }
       } else if (mode === 'forgot-password') {
-        const { error } = await resetPassword(email)
+        const { error } = await resetPassword(normalizedEmail)
         if (error) {
-          setError(error.message)
+          setError(mapFriendlyAuthError(error.message, mode))
         } else {
           setSuccess('Password reset email sent. Check your inbox.')
           setMode('login')
