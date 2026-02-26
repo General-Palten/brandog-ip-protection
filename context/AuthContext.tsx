@@ -91,6 +91,20 @@ const isAbortLikeError = (error: unknown): boolean => {
   return maybeError.name === 'AbortError' || message.includes('aborted')
 }
 
+const withTimeout = async <T,>(promise: PromiseLike<T>, timeoutMs: number, label: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
 const buildAuthRedirectUrl = (path: string): string | undefined => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   const runtimeOrigin = typeof window !== 'undefined'
@@ -383,10 +397,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Ensure profile exists before creating a brand (owner_id FK references profiles.id).
     let activeProfile = profile
     if (!activeProfile) {
-      activeProfile = await fetchProfile(
-        user.id,
-        user.email,
-        user.user_metadata?.full_name
+      activeProfile = await withTimeout(
+        fetchProfile(
+          user.id,
+          user.email,
+          user.user_metadata?.full_name
+        ),
+        15000,
+        'Profile initialization'
       )
       if (activeProfile) {
         setProfile(activeProfile)
@@ -410,15 +428,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const brandId = crypto.randomUUID()
         const slug = `${baseSlug}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 
-        const { error: insertError } = await supabase
-          .from('brands')
-          .insert({
-            id: brandId,
-            owner_id: user.id,
-            name: trimmedName,
-            slug,
-            website_url: normalizedWebsiteUrl,
-          })
+        const { error: insertError } = await withTimeout<any>(
+          supabase
+            .from('brands')
+            .insert({
+              id: brandId,
+              owner_id: user.id,
+              name: trimmedName,
+              slug,
+              website_url: normalizedWebsiteUrl,
+            }),
+          15000,
+          'Brand insert'
+        )
 
         if (insertError) {
           // Slug collisions are unlikely but retry safely if they occur.
@@ -430,11 +452,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         // Fetch inserted row when possible, but don't block onboarding if select is restricted.
-        const { data: fetchedBrand, error: fetchInsertedError } = await supabase
-          .from('brands')
-          .select('*')
-          .eq('id', brandId)
-          .maybeSingle()
+        const { data: fetchedBrand, error: fetchInsertedError } = await withTimeout<any>(
+          supabase
+            .from('brands')
+            .select('*')
+            .eq('id', brandId)
+            .maybeSingle(),
+          15000,
+          'Brand fetch'
+        )
 
         if (fetchInsertedError) {
           console.warn('Created brand but failed to fetch inserted row:', fetchInsertedError.message)
@@ -478,7 +504,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Refresh brands
   const refreshBrands = async () => {
     if (user) {
-      await fetchBrands(user.id)
+      await withTimeout(fetchBrands(user.id), 15000, 'Brand list refresh')
     }
   }
 
