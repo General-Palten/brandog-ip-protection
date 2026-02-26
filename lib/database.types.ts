@@ -171,9 +171,22 @@ export interface Database {
           platform: PlatformType
           infringing_url: string | null
           seller_name: string | null
+          primary_listing_price_value: number | null
+          primary_listing_currency: string | null
+          primary_seller_name: string | null
+          primary_rating: number | null
+          primary_reviews_count: number | null
+          primary_in_stock: boolean | null
+          primary_condition: string | null
+          primary_listing_position: number | null
           country: string | null
           site_visitors: number
           revenue_lost: number
+          revenue_score_version: string | null
+          revenue_confidence: number | null
+          revenue_at_risk_usd: number | null
+          last_evidence_at: string | null
+          evidence_snapshot: Json
           whois_registrar: string | null
           whois_creation_date: string | null
           whois_registrant_country: string | null
@@ -196,9 +209,22 @@ export interface Database {
           platform: PlatformType
           infringing_url?: string | null
           seller_name?: string | null
+          primary_listing_price_value?: number | null
+          primary_listing_currency?: string | null
+          primary_seller_name?: string | null
+          primary_rating?: number | null
+          primary_reviews_count?: number | null
+          primary_in_stock?: boolean | null
+          primary_condition?: string | null
+          primary_listing_position?: number | null
           country?: string | null
           site_visitors?: number
           revenue_lost?: number
+          revenue_score_version?: string | null
+          revenue_confidence?: number | null
+          revenue_at_risk_usd?: number | null
+          last_evidence_at?: string | null
+          evidence_snapshot?: Json
           whois_registrar?: string | null
           whois_creation_date?: string | null
           whois_registrant_country?: string | null
@@ -221,9 +247,22 @@ export interface Database {
           platform?: PlatformType
           infringing_url?: string | null
           seller_name?: string | null
+          primary_listing_price_value?: number | null
+          primary_listing_currency?: string | null
+          primary_seller_name?: string | null
+          primary_rating?: number | null
+          primary_reviews_count?: number | null
+          primary_in_stock?: boolean | null
+          primary_condition?: string | null
+          primary_listing_position?: number | null
           country?: string | null
           site_visitors?: number
           revenue_lost?: number
+          revenue_score_version?: string | null
+          revenue_confidence?: number | null
+          revenue_at_risk_usd?: number | null
+          last_evidence_at?: string | null
+          evidence_snapshot?: Json
           whois_registrar?: string | null
           whois_creation_date?: string | null
           whois_registrant_country?: string | null
@@ -301,6 +340,14 @@ export interface Database {
           retry_delay_hours: number
           google_vision_estimated_cost_usd: number
           serpapi_estimated_cost_usd: number
+          base_interval_days: number
+          found_interval_days: number
+          lookback_scans: number
+          revenue_scoring_order: 'openrouter_first' | 'deterministic_first'
+          openrouter_model: string
+          openrouter_max_tokens: number
+          max_provider_calls_per_scan: number
+          max_spend_usd_per_month: number
           created_at: string
           updated_at: string
         }
@@ -316,6 +363,14 @@ export interface Database {
           retry_delay_hours?: number
           google_vision_estimated_cost_usd?: number
           serpapi_estimated_cost_usd?: number
+          base_interval_days?: number
+          found_interval_days?: number
+          lookback_scans?: number
+          revenue_scoring_order?: 'openrouter_first' | 'deterministic_first'
+          openrouter_model?: string
+          openrouter_max_tokens?: number
+          max_provider_calls_per_scan?: number
+          max_spend_usd_per_month?: number
           created_at?: string
           updated_at?: string
         }
@@ -331,6 +386,14 @@ export interface Database {
           retry_delay_hours?: number
           google_vision_estimated_cost_usd?: number
           serpapi_estimated_cost_usd?: number
+          base_interval_days?: number
+          found_interval_days?: number
+          lookback_scans?: number
+          revenue_scoring_order?: 'openrouter_first' | 'deterministic_first'
+          openrouter_model?: string
+          openrouter_max_tokens?: number
+          max_provider_calls_per_scan?: number
+          max_spend_usd_per_month?: number
           created_at?: string
           updated_at?: string
         }
@@ -359,6 +422,247 @@ export interface Database {
           spend_usd?: number
           created_at?: string
           updated_at?: string
+        }
+      }
+      provider_fetch_tokens: {
+        Row: {
+          token_hash: string
+          asset_id: string
+          brand_id: string
+          provider: string
+          expires_at: string
+          max_fetches: number
+          fetch_count: number
+          revoked: boolean
+          created_by: string | null
+          created_at: string
+          last_fetched_at: string | null
+        }
+        Insert: {
+          token_hash: string
+          asset_id: string
+          brand_id: string
+          provider: string
+          expires_at: string
+          max_fetches?: number
+          fetch_count?: number
+          revoked?: boolean
+          created_by?: string | null
+          created_at?: string
+          last_fetched_at?: string | null
+        }
+        Update: {
+          token_hash?: string
+          asset_id?: string
+          brand_id?: string
+          provider?: string
+          expires_at?: string
+          max_fetches?: number
+          fetch_count?: number
+          revoked?: boolean
+          created_by?: string | null
+          created_at?: string
+          last_fetched_at?: string | null
+        }
+      }
+      provider_search_runs: {
+        Row: {
+          id: string
+          brand_id: string
+          asset_id: string | null
+          provider: string
+          endpoint: string
+          request_meta: Json
+          response_status: number | null
+          response_time_ms: number | null
+          estimated_cost_usd: number | null
+          error: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          asset_id?: string | null
+          provider: string
+          endpoint: string
+          request_meta?: Json
+          response_status?: number | null
+          response_time_ms?: number | null
+          estimated_cost_usd?: number | null
+          error?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          asset_id?: string | null
+          provider?: string
+          endpoint?: string
+          request_meta?: Json
+          response_status?: number | null
+          response_time_ms?: number | null
+          estimated_cost_usd?: number | null
+          error?: string | null
+          created_at?: string
+        }
+      }
+      infringement_evidence: {
+        Row: {
+          id: string
+          infringement_id: string
+          asset_id: string | null
+          provider_run_id: string | null
+          captured_at: string
+          evidence_version: number
+          normalized_json: Json
+          raw_json: Json
+          source_url_hash: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          infringement_id: string
+          asset_id?: string | null
+          provider_run_id?: string | null
+          captured_at?: string
+          evidence_version?: number
+          normalized_json?: Json
+          raw_json?: Json
+          source_url_hash?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          infringement_id?: string
+          asset_id?: string | null
+          provider_run_id?: string | null
+          captured_at?: string
+          evidence_version?: number
+          normalized_json?: Json
+          raw_json?: Json
+          source_url_hash?: string | null
+          created_at?: string
+        }
+      }
+      listing_offers: {
+        Row: {
+          id: string
+          infringement_id: string
+          listing_url: string
+          seller_name: string | null
+          store_name: string | null
+          price_value: number | null
+          currency: string | null
+          price_text: string | null
+          rating: number | null
+          reviews_count: number | null
+          in_stock: boolean | null
+          condition: string | null
+          shipping_cost: number | null
+          shipping_currency: string | null
+          tax_info: string | null
+          position: number | null
+          confidence: number | null
+          first_seen_at: string
+          last_seen_at: string
+          is_active: boolean
+          metadata: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          infringement_id: string
+          listing_url: string
+          seller_name?: string | null
+          store_name?: string | null
+          price_value?: number | null
+          currency?: string | null
+          price_text?: string | null
+          rating?: number | null
+          reviews_count?: number | null
+          in_stock?: boolean | null
+          condition?: string | null
+          shipping_cost?: number | null
+          shipping_currency?: string | null
+          tax_info?: string | null
+          position?: number | null
+          confidence?: number | null
+          first_seen_at?: string
+          last_seen_at?: string
+          is_active?: boolean
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          infringement_id?: string
+          listing_url?: string
+          seller_name?: string | null
+          store_name?: string | null
+          price_value?: number | null
+          currency?: string | null
+          price_text?: string | null
+          rating?: number | null
+          reviews_count?: number | null
+          in_stock?: boolean | null
+          condition?: string | null
+          shipping_cost?: number | null
+          shipping_currency?: string | null
+          tax_info?: string | null
+          position?: number | null
+          confidence?: number | null
+          first_seen_at?: string
+          last_seen_at?: string
+          is_active?: boolean
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      revenue_scores: {
+        Row: {
+          id: string
+          infringement_id: string
+          scored_at: string
+          model_provider: string
+          model_name: string | null
+          scoring_order: string | null
+          fallback_used: boolean
+          revenue_at_risk_usd: number
+          confidence: number
+          score_json: Json
+          explainability_json: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          infringement_id: string
+          scored_at?: string
+          model_provider: string
+          model_name?: string | null
+          scoring_order?: string | null
+          fallback_used?: boolean
+          revenue_at_risk_usd?: number
+          confidence?: number
+          score_json?: Json
+          explainability_json?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          infringement_id?: string
+          scored_at?: string
+          model_provider?: string
+          model_name?: string | null
+          scoring_order?: string | null
+          fallback_used?: boolean
+          revenue_at_risk_usd?: number
+          confidence?: number
+          score_json?: Json
+          explainability_json?: Json
+          created_at?: string
         }
       }
       takedown_requests: {
@@ -636,6 +940,11 @@ export type Infringement = Database['public']['Tables']['infringements']['Row']
 export type ScanEvent = Database['public']['Tables']['scan_events']['Row']
 export type ScanSettings = Database['public']['Tables']['scan_settings']['Row']
 export type ScanBudgetDaily = Database['public']['Tables']['scan_budget_daily']['Row']
+export type ProviderFetchToken = Database['public']['Tables']['provider_fetch_tokens']['Row']
+export type ProviderSearchRun = Database['public']['Tables']['provider_search_runs']['Row']
+export type InfringementEvidence = Database['public']['Tables']['infringement_evidence']['Row']
+export type ListingOffer = Database['public']['Tables']['listing_offers']['Row']
+export type RevenueScore = Database['public']['Tables']['revenue_scores']['Row']
 export type TakedownRequest = Database['public']['Tables']['takedown_requests']['Row']
 export type CaseUpdate = Database['public']['Tables']['case_updates']['Row']
 export type Keyword = Database['public']['Tables']['keywords']['Row']
@@ -652,6 +961,11 @@ export type InfringementInsert = Database['public']['Tables']['infringements']['
 export type ScanEventInsert = Database['public']['Tables']['scan_events']['Insert']
 export type ScanSettingsInsert = Database['public']['Tables']['scan_settings']['Insert']
 export type ScanBudgetDailyInsert = Database['public']['Tables']['scan_budget_daily']['Insert']
+export type ProviderFetchTokenInsert = Database['public']['Tables']['provider_fetch_tokens']['Insert']
+export type ProviderSearchRunInsert = Database['public']['Tables']['provider_search_runs']['Insert']
+export type InfringementEvidenceInsert = Database['public']['Tables']['infringement_evidence']['Insert']
+export type ListingOfferInsert = Database['public']['Tables']['listing_offers']['Insert']
+export type RevenueScoreInsert = Database['public']['Tables']['revenue_scores']['Insert']
 export type TakedownRequestInsert = Database['public']['Tables']['takedown_requests']['Insert']
 export type CaseUpdateInsert = Database['public']['Tables']['case_updates']['Insert']
 export type KeywordInsert = Database['public']['Tables']['keywords']['Insert']

@@ -50,6 +50,17 @@ export interface InfringementItem {
   originalAssetId?: string; // Links to PersistedAsset.id
   infringingUrl?: string;
   sellerName?: string;
+  listingPrice?: number;
+  listingCurrency?: string;
+  listingPriceText?: string;
+  listingRating?: number;
+  listingReviewsCount?: number;
+  listingInStock?: boolean;
+  listingCondition?: string;
+  listingPosition?: number;
+  revenueAtRiskUsd?: number;
+  revenueConfidence?: number;
+  evidenceSnapshot?: Record<string, unknown>;
   whois?: {
     registrar: string;
     creationDate: string;
@@ -200,6 +211,18 @@ export interface VisionSearchResult {
   fullMatchingImages: string[];
   partialMatchingImages: string[];
   score?: number;
+  source?: string;
+  sellerName?: string;
+  priceValue?: number;
+  currency?: string;
+  priceText?: string;
+  rating?: number;
+  reviewsCount?: number;
+  inStock?: boolean;
+  condition?: string;
+  position?: number;
+  confidence?: number;
+  rawEvidence?: Record<string, unknown>;
 }
 
 export interface VisionWebEntity {

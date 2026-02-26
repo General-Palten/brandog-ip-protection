@@ -2,6 +2,7 @@
 
 import { VisionSearchResponse, VisionSearchResult, VisionWebEntity } from '../types';
 import { getVisionConfig, isServerManagedSerpApiEnabled, type ImageSearchProvider } from './api-config';
+import { parseSerpApiListings } from './provider-serpapi';
 
 const VISION_API_URL = 'https://vision.googleapis.com/v1/images:annotate';
 const SERPAPI_PROXY_URL = '/api/serpapi/search.json';
@@ -56,14 +57,6 @@ interface VisionApiResponse {
   }[];
 }
 
-interface SerpApiLensMatch {
-  title?: string;
-  link?: string;
-  source?: string;
-  image?: string;
-  thumbnail?: string;
-}
-
 interface SerpApiLensRelatedContent {
   title?: string;
   query?: string;
@@ -71,9 +64,8 @@ interface SerpApiLensRelatedContent {
 
 interface SerpApiLensResponse {
   error?: string;
-  visual_matches?: SerpApiLensMatch[];
-  exact_matches?: SerpApiLensMatch[];
   related_content?: SerpApiLensRelatedContent[];
+  [key: string]: any;
 }
 
 interface SearchByImageOptions {
@@ -149,51 +141,64 @@ const resolveApiKey = (
 };
 
 const mapSerpApiResponseToVisionShape = (payload: SerpApiLensResponse): VisionSearchResponse => {
-  const visualMatches = payload.visual_matches || [];
-  const exactMatches = payload.exact_matches || [];
+  const listings = parseSerpApiListings(payload as Record<string, any>);
 
   const pageMap = new Map<string, VisionSearchResult>();
 
-  for (const match of visualMatches) {
-    const pageUrl = (match.link || '').trim();
+  for (const listing of listings) {
+    const pageUrl = (listing.link || '').trim();
     if (!pageUrl) continue;
 
-    const fullImages = dedupeUrls([match.image, match.thumbnail]);
-    pageMap.set(pageUrl, {
-      url: pageUrl,
-      pageTitle: match.title || match.source || undefined,
-      fullMatchingImages: fullImages,
-      partialMatchingImages: [],
-    });
-  }
+    const fullImages = listing.kind === 'exact'
+      ? []
+      : dedupeUrls([listing.image, listing.thumbnail]);
+    const partialImages = listing.kind === 'exact'
+      ? dedupeUrls([listing.image, listing.thumbnail])
+      : [];
 
-  for (const match of exactMatches) {
-    const pageUrl = (match.link || '').trim();
-    if (!pageUrl) continue;
-
-    const partialImages = dedupeUrls([match.image, match.thumbnail]);
     const existing = pageMap.get(pageUrl);
-    if (existing) {
-      pageMap.set(pageUrl, {
-        ...existing,
-        partialMatchingImages: dedupeUrls([...existing.partialMatchingImages, ...partialImages]),
-      });
-      continue;
-    }
-
-    pageMap.set(pageUrl, {
+    const merged: VisionSearchResult = {
       url: pageUrl,
-      pageTitle: match.title || match.source || undefined,
-      fullMatchingImages: [],
-      partialMatchingImages: partialImages,
-    });
+      pageTitle: listing.title || listing.source || existing?.pageTitle,
+      fullMatchingImages: dedupeUrls([...(existing?.fullMatchingImages || []), ...fullImages]),
+      partialMatchingImages: dedupeUrls([...(existing?.partialMatchingImages || []), ...partialImages]),
+      score: listing.confidence ?? existing?.score,
+      source: listing.source || existing?.source,
+      sellerName: listing.sellerName || existing?.sellerName,
+      priceValue: listing.priceValue ?? existing?.priceValue,
+      currency: listing.currency || existing?.currency,
+      priceText: listing.priceText || existing?.priceText,
+      rating: listing.rating ?? existing?.rating,
+      reviewsCount: listing.reviewsCount ?? existing?.reviewsCount,
+      inStock: listing.inStock ?? existing?.inStock,
+      condition: listing.condition || existing?.condition,
+      position: listing.position ?? existing?.position,
+      confidence: listing.confidence ?? existing?.confidence,
+      rawEvidence: {
+        ...(existing?.rawEvidence || {}),
+        ...(listing.raw || {}),
+      },
+    };
+    pageMap.set(pageUrl, merged);
   }
 
-  const fullMatchingImages = dedupeUrls(visualMatches.map(match => match.image || match.thumbnail))
+  const fullMatchingImages = dedupeUrls(
+    listings
+      .filter((item) => item.kind !== 'exact')
+      .map((item) => item.image || item.thumbnail)
+  )
     .map(url => ({ url }));
-  const partialMatchingImages = dedupeUrls(exactMatches.map(match => match.image || match.thumbnail))
+  const partialMatchingImages = dedupeUrls(
+    listings
+      .filter((item) => item.kind === 'exact')
+      .map((item) => item.image || item.thumbnail)
+  )
     .map(url => ({ url }));
-  const visuallySimilarImages = dedupeUrls(visualMatches.map(match => match.thumbnail || match.image))
+  const visuallySimilarImages = dedupeUrls(
+    listings
+      .filter((item) => item.kind === 'visual' || item.kind === 'product')
+      .map((item) => item.thumbnail || item.image)
+  )
     .map(url => ({ url }));
 
   const webEntities: VisionWebEntity[] = (payload.related_content || [])
@@ -210,6 +215,65 @@ const mapSerpApiResponseToVisionShape = (payload: SerpApiLensResponse): VisionSe
     partialMatchingImages,
     visuallySimilarImages,
     webEntities,
+  };
+};
+
+const mergeVisionSearchResponses = (
+  primary: VisionSearchResponse,
+  secondary: VisionSearchResponse
+): VisionSearchResponse => {
+  const pageMap = new Map<string, VisionSearchResult>();
+  for (const page of [...primary.pagesWithMatchingImages, ...secondary.pagesWithMatchingImages]) {
+    const existing = pageMap.get(page.url);
+    if (!existing) {
+      pageMap.set(page.url, page);
+      continue;
+    }
+
+    pageMap.set(page.url, {
+      ...existing,
+      ...page,
+      pageTitle: page.pageTitle || existing.pageTitle,
+      fullMatchingImages: dedupeUrls([...(existing.fullMatchingImages || []), ...(page.fullMatchingImages || [])]),
+      partialMatchingImages: dedupeUrls([...(existing.partialMatchingImages || []), ...(page.partialMatchingImages || [])]),
+      score: page.score ?? existing.score,
+      source: page.source || existing.source,
+      sellerName: page.sellerName || existing.sellerName,
+      priceValue: page.priceValue ?? existing.priceValue,
+      currency: page.currency || existing.currency,
+      priceText: page.priceText || existing.priceText,
+      rating: page.rating ?? existing.rating,
+      reviewsCount: page.reviewsCount ?? existing.reviewsCount,
+      inStock: page.inStock ?? existing.inStock,
+      condition: page.condition || existing.condition,
+      position: page.position ?? existing.position,
+      confidence: page.confidence ?? existing.confidence,
+      rawEvidence: {
+        ...(existing.rawEvidence || {}),
+        ...(page.rawEvidence || {}),
+      },
+    });
+  }
+
+  return {
+    pagesWithMatchingImages: Array.from(pageMap.values()),
+    fullMatchingImages: dedupeUrls([
+      ...primary.fullMatchingImages.map(img => img.url),
+      ...secondary.fullMatchingImages.map(img => img.url),
+    ]).map((url) => ({ url })),
+    partialMatchingImages: dedupeUrls([
+      ...primary.partialMatchingImages.map(img => img.url),
+      ...secondary.partialMatchingImages.map(img => img.url),
+    ]).map((url) => ({ url })),
+    visuallySimilarImages: dedupeUrls([
+      ...primary.visuallySimilarImages.map(img => img.url),
+      ...secondary.visuallySimilarImages.map(img => img.url),
+    ]).map((url) => ({ url })),
+    webEntities: [...primary.webEntities, ...secondary.webEntities]
+      .filter(entity => entity.description)
+      .filter((entity, index, arr) =>
+        arr.findIndex(item => item.description.toLowerCase() === entity.description.toLowerCase()) === index
+      ),
   };
 };
 
@@ -325,7 +389,31 @@ const searchWithSerpApiLens = async (apiKey: string, imageUrl?: string): Promise
     throw new Error(data.error);
   }
 
-  return mapSerpApiResponseToVisionShape(data);
+  let merged = mapSerpApiResponseToVisionShape(data);
+
+  // Best-effort second pass to capture product-tab fields.
+  try {
+    const productParams = new URLSearchParams({
+      engine: SERPAPI_ENGINE,
+      type: 'products',
+      url: imageUrl,
+    });
+    appendSerpApiAuth(productParams, apiKey);
+    const productResponse = await fetch(`${SERPAPI_REQUEST_URL}?${productParams.toString()}`, {
+      method: 'GET',
+    });
+    if (productResponse.ok) {
+      const productData: SerpApiLensResponse = await productResponse.json().catch(() => ({}));
+      if (!productData.error || isSerpApiNoResultsError(productData.error)) {
+        const productsShape = mapSerpApiResponseToVisionShape(productData);
+        merged = mergeVisionSearchResponses(merged, productsShape);
+      }
+    }
+  } catch {
+    // Keep primary response if products enrichment fails.
+  }
+
+  return merged;
 };
 
 export async function searchByImage(imageBase64: string, options: SearchByImageOptions = {}): Promise<VisionSearchResponse> {

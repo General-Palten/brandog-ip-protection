@@ -672,6 +672,27 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
                                     {result.partialMatchingImages.length} partial match(es)
                                   </span>
                                 )}
+                                {typeof result.priceValue === 'number' && (
+                                  <span className="text-cyan-400">
+                                    {(result.currency || 'USD').toUpperCase()} {result.priceValue.toFixed(2)}
+                                  </span>
+                                )}
+                                {typeof result.rating === 'number' && (
+                                  <span className="text-violet-400">
+                                    {result.rating.toFixed(1)}★
+                                    {typeof result.reviewsCount === 'number' ? ` (${Math.round(result.reviewsCount)})` : ''}
+                                  </span>
+                                )}
+                                {typeof result.inStock === 'boolean' && (
+                                  <span className={result.inStock ? 'text-emerald-400' : 'text-rose-400'}>
+                                    {result.inStock ? 'In stock' : 'Out of stock'}
+                                  </span>
+                                )}
+                                {result.sellerName && (
+                                  <span className="text-secondary truncate max-w-[140px]">
+                                    Seller: {result.sellerName}
+                                  </span>
+                                )}
                               </div>
                             </div>
 

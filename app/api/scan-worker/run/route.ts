@@ -1,30 +1,52 @@
+import { createHash } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseService } from '@/lib/supabase-service';
 import { createProviderToken, hashProviderToken } from '@/lib/provider-token';
+import {
+  extractFollowupSerpApiLinks,
+  fetchSerpApiFollowupLink,
+  mergeListingsByUrl,
+  parseSerpApiListings,
+  searchLensAll,
+  searchLensProducts,
+  type SerpApiListing,
+  type SerpApiSearchCall,
+} from '@/lib/provider-serpapi';
+import { scoreRevenue, type RevenueScoringOrder } from '@/lib/revenue-scoring';
+import { computeFixedCadenceNextScanAt } from '@/lib/scan-cadence';
+import { buildEvidenceBundle, normalizeEvidenceSnapshot } from '@/lib/evidence-normalizer';
 import type { PlatformType } from '@/lib/database.types';
 
 const CLAIM_LIMIT = 10;
 const MAX_JOBS_PER_RUN = 50;
 const MAX_RETRY_ATTEMPTS = 10;
 const TOKEN_TTL_SECONDS = 120;
-const NO_MATCH_STALE_THRESHOLD = 3;
 const MAX_MATCHES_PER_SCAN = 25;
+const MAX_OPENROUTER_SCORES_PER_SCAN = 3;
+const SERPAPI_LENS_PROVIDER = 'serpapi_lens';
 
 const DEFAULT_SCAN_SETTINGS = {
   maxScansPerDay: 250,
   maxSpendUsdPerDay: 25,
   maxParallelScans: 3,
-  highRiskIntervalHours: 168, // weekly
-  mediumRiskIntervalHours: 336, // biweekly
-  lowRiskIntervalHours: 720, // monthly
-  staleIntervalHours: 720,
   retryDelayHours: 6,
   serpapiEstimatedCostUsd: 0.01,
+  baseIntervalDays: 14,
+  foundIntervalDays: 3,
+  lookbackScans: 5,
+  revenueScoringOrder: 'openrouter_first' as RevenueScoringOrder,
+  openrouterModel: 'arcee-ai/trinity-large-preview:free',
+  openrouterMaxTokens: 500,
+  maxProviderCallsPerScan: 3,
+  maxSpendUsdPerMonth: 250,
 };
 
 const PUBLIC_APP_URL = (process.env.NEXT_PUBLIC_APP_URL || process.env.PUBLIC_APP_URL || '').trim();
 const serpApiKey = (process.env.SERPAPI_API_KEY || '').trim();
 const workerSecret = (process.env.SCAN_WORKER_SECRET || '').trim();
+const openRouterApiKey = (process.env.OPENROUTER_API_KEY || '').trim();
+const envOpenRouterModel = (process.env.OPENROUTER_MODEL || '').trim();
+const defaultOpenRouterModel = envOpenRouterModel || 'arcee-ai/trinity-large-preview:free';
 
 type Job = {
   id: string;
@@ -40,12 +62,16 @@ type ScanSettings = {
   maxScansPerDay: number;
   maxSpendUsdPerDay: number;
   maxParallelScans: number;
-  highRiskIntervalHours: number;
-  mediumRiskIntervalHours: number;
-  lowRiskIntervalHours: number;
-  staleIntervalHours: number;
   retryDelayHours: number;
   serpapiEstimatedCostUsd: number;
+  baseIntervalDays: number;
+  foundIntervalDays: number;
+  lookbackScans: number;
+  revenueScoringOrder: RevenueScoringOrder;
+  openrouterModel: string;
+  openrouterMaxTokens: number;
+  maxProviderCallsPerScan: number;
+  maxSpendUsdPerMonth: number;
 };
 
 const nowIso = (): string => new Date().toISOString();
@@ -106,15 +132,49 @@ const mapPlatform = (domain: string): PlatformType => {
   return 'Website';
 };
 
-const computeNextScanAt = (
-  settings: ScanSettings,
-  matchesFound: number,
-  noMatchStreak: number
-): string => {
-  if (matchesFound >= 5) return addHours(settings.highRiskIntervalHours);
-  if (matchesFound > 0) return addHours(settings.mediumRiskIntervalHours);
-  if (noMatchStreak >= NO_MATCH_STALE_THRESHOLD) return addHours(settings.staleIntervalHours);
-  return addHours(settings.lowRiskIntervalHours);
+const isMissingTableError = (error: { code?: string; message?: string } | null | undefined): boolean => {
+  if (!error) return false;
+  const message = (error.message || '').toLowerCase();
+  return error.code === '42P01'
+    || error.code === 'PGRST205'
+    || message.includes('relation') && message.includes('does not exist')
+    || message.includes('schema cache');
+};
+
+const isMissingColumnError = (error: { code?: string; message?: string } | null | undefined): boolean => {
+  if (!error) return false;
+  const message = (error.message || '').toLowerCase();
+  return error.code === '42703'
+    || error.code === 'PGRST204'
+    || message.includes('column') && message.includes('does not exist');
+};
+
+const isNoResultsError = (message: string | undefined): boolean => {
+  const text = (message || '').toLowerCase();
+  return text.includes('no results')
+    || text.includes("hasn't returned any results")
+    || text.includes('did not return any results');
+};
+
+const estimateSimilarityFromListing = (listing: SerpApiListing): number => {
+  if (listing.kind === 'exact') return 92;
+  if (listing.kind === 'visual') return 80;
+  return 72;
+};
+
+const estimateSiteVisitors = (listing: SerpApiListing, similarityScore: number): number => {
+  const reviews = typeof listing.reviewsCount === 'number' ? Math.max(0, listing.reviewsCount) : 0;
+  const rating = typeof listing.rating === 'number' ? Math.max(0, Math.min(5, listing.rating)) : 0;
+  const position = typeof listing.position === 'number' ? Math.max(1, listing.position) : 20;
+  const base = 250 + Math.min(30000, reviews * 4);
+  const ratingFactor = 0.75 + (rating / 8);
+  const positionFactor = position <= 3 ? 1.4 : position <= 10 ? 1.05 : 0.8;
+  const similarityFactor = 0.7 + Math.min(0.3, similarityScore / 100);
+  return Math.max(100, Math.round(base * ratingFactor * positionFactor * similarityFactor));
+};
+
+const hashSourceUrl = (url: string): string => {
+  return createHash('sha256').update(url).digest('hex');
 };
 
 const loadScanSettings = async (brandId: string): Promise<ScanSettings> => {
@@ -125,12 +185,16 @@ const loadScanSettings = async (brandId: string): Promise<ScanSettings> => {
       max_scans_per_day,
       max_spend_usd_per_day,
       max_parallel_scans,
-      high_risk_interval_hours,
-      medium_risk_interval_hours,
-      low_risk_interval_hours,
-      stale_interval_hours,
       retry_delay_hours,
-      serpapi_estimated_cost_usd
+      serpapi_estimated_cost_usd,
+      base_interval_days,
+      found_interval_days,
+      lookback_scans,
+      revenue_scoring_order,
+      openrouter_model,
+      openrouter_max_tokens,
+      max_provider_calls_per_scan,
+      max_spend_usd_per_month
     `)
     .eq('brand_id', brandId)
     .maybeSingle();
@@ -139,16 +203,30 @@ const loadScanSettings = async (brandId: string): Promise<ScanSettings> => {
     return { ...DEFAULT_SCAN_SETTINGS };
   }
 
+  const scoringOrderRaw = (data.revenue_scoring_order || DEFAULT_SCAN_SETTINGS.revenueScoringOrder) as string;
+  const scoringOrder: RevenueScoringOrder = scoringOrderRaw === 'deterministic_first'
+    ? 'deterministic_first'
+    : 'openrouter_first';
+  const configuredModel = (data.openrouter_model || '').toString().trim();
+  const normalizedModel = !configuredModel || configuredModel === 'openai/gpt-4o-mini'
+    ? DEFAULT_SCAN_SETTINGS.openrouterModel
+    : configuredModel;
+  const effectiveModel = envOpenRouterModel || normalizedModel || defaultOpenRouterModel;
+
   return {
     maxScansPerDay: Number(data.max_scans_per_day ?? DEFAULT_SCAN_SETTINGS.maxScansPerDay),
     maxSpendUsdPerDay: Number(data.max_spend_usd_per_day ?? DEFAULT_SCAN_SETTINGS.maxSpendUsdPerDay),
     maxParallelScans: Number(data.max_parallel_scans ?? DEFAULT_SCAN_SETTINGS.maxParallelScans),
-    highRiskIntervalHours: Number(data.high_risk_interval_hours ?? DEFAULT_SCAN_SETTINGS.highRiskIntervalHours),
-    mediumRiskIntervalHours: Number(data.medium_risk_interval_hours ?? DEFAULT_SCAN_SETTINGS.mediumRiskIntervalHours),
-    lowRiskIntervalHours: Number(data.low_risk_interval_hours ?? DEFAULT_SCAN_SETTINGS.lowRiskIntervalHours),
-    staleIntervalHours: Number(data.stale_interval_hours ?? DEFAULT_SCAN_SETTINGS.staleIntervalHours),
     retryDelayHours: Number(data.retry_delay_hours ?? DEFAULT_SCAN_SETTINGS.retryDelayHours),
     serpapiEstimatedCostUsd: Number(data.serpapi_estimated_cost_usd ?? DEFAULT_SCAN_SETTINGS.serpapiEstimatedCostUsd),
+    baseIntervalDays: Number(data.base_interval_days ?? DEFAULT_SCAN_SETTINGS.baseIntervalDays),
+    foundIntervalDays: Number(data.found_interval_days ?? DEFAULT_SCAN_SETTINGS.foundIntervalDays),
+    lookbackScans: Number(data.lookback_scans ?? DEFAULT_SCAN_SETTINGS.lookbackScans),
+    revenueScoringOrder: scoringOrder,
+    openrouterModel: effectiveModel,
+    openrouterMaxTokens: Number(data.openrouter_max_tokens ?? DEFAULT_SCAN_SETTINGS.openrouterMaxTokens),
+    maxProviderCallsPerScan: Number(data.max_provider_calls_per_scan ?? DEFAULT_SCAN_SETTINGS.maxProviderCallsPerScan),
+    maxSpendUsdPerMonth: Number(data.max_spend_usd_per_month ?? DEFAULT_SCAN_SETTINGS.maxSpendUsdPerMonth),
   };
 };
 
@@ -168,6 +246,22 @@ const loadDailyBudgetUsage = async (brandId: string): Promise<{ scansExecuted: n
   };
 };
 
+const loadMonthlySpendUsage = async (brandId: string): Promise<number> => {
+  const supabase: any = getSupabaseService();
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
+  const monthEnd = now.toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from('scan_budget_daily')
+    .select('spend_usd')
+    .eq('brand_id', brandId)
+    .gte('budget_date', monthStart)
+    .lte('budget_date', monthEnd);
+
+  if (error || !data) return 0;
+  return data.reduce((sum: number, row: { spend_usd?: number }) => sum + Number(row.spend_usd || 0), 0);
+};
+
 const recordBudgetUsage = async (brandId: string, scanIncrement: number, spendIncrementUsd: number): Promise<void> => {
   if (scanIncrement <= 0 && spendIncrementUsd <= 0) return;
   const supabase: any = getSupabaseService();
@@ -178,24 +272,20 @@ const recordBudgetUsage = async (brandId: string, scanIncrement: number, spendIn
   });
 };
 
-const getNoMatchStreak = async (assetId: string): Promise<number> => {
+const loadRecentMatchHistory = async (assetId: string, limit: number): Promise<number[]> => {
+  const safeLimit = Math.max(0, Math.min(limit, 50));
+  if (safeLimit <= 0) return [];
   const supabase: any = getSupabaseService();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('scan_events')
-    .select('status, matches_found')
+    .select('matches_found')
     .eq('asset_id', assetId)
+    .eq('status', 'success')
     .order('started_at', { ascending: false })
-    .limit(NO_MATCH_STALE_THRESHOLD);
+    .limit(safeLimit);
 
-  if (!data || data.length === 0) return 0;
-
-  let streak = 0;
-  for (const row of data) {
-    if (row.status !== 'success') break;
-    if ((row.matches_found || 0) > 0) break;
-    streak += 1;
-  }
-  return streak;
+  if (error || !data) return [];
+  return data.map((row: { matches_found?: number }) => Number(row.matches_found || 0));
 };
 
 const loadWhitelistDomains = async (brandId: string): Promise<Set<string>> => {
@@ -245,6 +335,114 @@ const createTakedownForInfringement = async (infringementId: string): Promise<vo
     });
 };
 
+const recordProviderRun = async (
+  brandId: string,
+  assetId: string,
+  call: SerpApiSearchCall,
+  estimatedCostUsd: number
+): Promise<string | null> => {
+  const supabase: any = getSupabaseService();
+  const { data, error } = await supabase
+    .from('provider_search_runs')
+    .insert({
+      brand_id: brandId,
+      asset_id: assetId,
+      provider: SERPAPI_LENS_PROVIDER,
+      endpoint: call.endpoint,
+      request_meta: call.query,
+      response_status: call.status || null,
+      response_time_ms: call.latencyMs,
+      estimated_cost_usd: estimatedCostUsd,
+      error: call.error || null,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    if (!isMissingTableError(error)) {
+      console.error('Failed to write provider_search_runs:', error);
+    }
+    return null;
+  }
+
+  return data?.id || null;
+};
+
+const persistEvidenceAndOffers = async (
+  infringementId: string,
+  assetId: string,
+  listing: SerpApiListing,
+  providerPayloads: Record<string, any>[],
+  providerRunId: string | null,
+  score: Awaited<ReturnType<typeof scoreRevenue>>
+): Promise<void> => {
+  const supabase: any = getSupabaseService();
+  const snapshot = normalizeEvidenceSnapshot(listing);
+  const { normalized, raw } = buildEvidenceBundle(listing, providerPayloads);
+
+  const { error: offerError } = await supabase
+    .from('listing_offers')
+    .upsert(
+      {
+        infringement_id: infringementId,
+        listing_url: listing.link,
+        seller_name: listing.sellerName || listing.source || null,
+        store_name: listing.source || null,
+        price_value: listing.priceValue ?? null,
+        currency: listing.currency || null,
+        price_text: listing.priceText || null,
+        rating: listing.rating ?? null,
+        reviews_count: listing.reviewsCount ?? null,
+        in_stock: listing.inStock ?? null,
+        condition: listing.condition || null,
+        position: listing.position ?? null,
+        confidence: listing.confidence ?? null,
+        last_seen_at: nowIso(),
+        is_active: true,
+        metadata: snapshot,
+      },
+      { onConflict: 'infringement_id,listing_url' }
+    );
+
+  if (offerError && !isMissingTableError(offerError)) {
+    console.error('Failed to write listing_offers:', offerError);
+  }
+
+  const { error: evidenceError } = await supabase
+    .from('infringement_evidence')
+    .insert({
+      infringement_id: infringementId,
+      asset_id: assetId,
+      provider_run_id: providerRunId,
+      evidence_version: 1,
+      normalized_json: normalized,
+      raw_json: raw,
+      source_url_hash: hashSourceUrl(listing.link),
+    });
+
+  if (evidenceError && !isMissingTableError(evidenceError)) {
+    console.error('Failed to write infringement_evidence:', evidenceError);
+  }
+
+  const { error: scoreError } = await supabase
+    .from('revenue_scores')
+    .insert({
+      infringement_id: infringementId,
+      model_provider: score.modelProvider,
+      model_name: score.modelName || null,
+      scoring_order: score.modelProvider === 'openrouter' ? 'openrouter_first' : 'deterministic_first',
+      fallback_used: score.fallbackUsed,
+      revenue_at_risk_usd: score.revenueAtRiskUsd,
+      confidence: score.confidence,
+      score_json: score.scoreJson,
+      explainability_json: score.explainabilityJson,
+    });
+
+  if (scoreError && !isMissingTableError(scoreError)) {
+    console.error('Failed to write revenue_scores:', scoreError);
+  }
+};
+
 export async function POST(req: NextRequest) {
   if (workerSecret) {
     const provided = req.headers.get('x-cron-secret');
@@ -284,15 +482,22 @@ export async function POST(req: NextRequest) {
 
     const settings = await loadScanSettings(brand.id);
     const budget = await loadDailyBudgetUsage(brand.id);
+    const monthlySpend = await loadMonthlySpendUsage(brand.id);
     const whitelistDomains = await loadWhitelistDomains(brand.id);
 
-    const estimatedCost = Math.max(0, settings.serpapiEstimatedCostUsd);
+    const perProviderCallCost = Math.max(0, settings.serpapiEstimatedCostUsd);
+    const estimatedCallsPerScan = Math.max(1, Math.min(settings.maxProviderCallsPerScan, 10));
+    const estimatedCost = perProviderCallCost * estimatedCallsPerScan;
     const remainingScans = Math.max(0, settings.maxScansPerDay - budget.scansExecuted);
     const remainingSpendUsd = Math.max(0, settings.maxSpendUsdPerDay - budget.spendUsd);
+    const remainingMonthlySpendUsd = Math.max(0, settings.maxSpendUsdPerMonth - monthlySpend);
     const remainingBySpend = estimatedCost > 0
       ? Math.floor(remainingSpendUsd / estimatedCost)
       : remainingScans;
-    const budgetCapacity = Math.max(0, Math.min(remainingScans, remainingBySpend));
+    const remainingByMonthlySpend = estimatedCost > 0
+      ? Math.floor(remainingMonthlySpendUsd / estimatedCost)
+      : remainingScans;
+    const budgetCapacity = Math.max(0, Math.min(remainingScans, remainingBySpend, remainingByMonthlySpend));
     const runCapacity = Math.max(0, MAX_JOBS_PER_RUN - processed);
     const claimCapacity = Math.max(0, Math.min(CLAIM_LIMIT, settings.maxParallelScans, budgetCapacity, runCapacity));
 
@@ -376,13 +581,13 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      if (job.scan_provider !== 'serpapi_lens') {
+      if (job.scan_provider !== SERPAPI_LENS_PROVIDER) {
         const finishedAt = nowIso();
         await supabase
           .from('assets')
           .update({
             scan_status: 'queued',
-            next_scan_at: addHours(settings.lowRiskIntervalHours),
+            next_scan_at: addHours(settings.baseIntervalDays * 24),
             last_scanned_at: finishedAt,
             last_scan_error: 'Deferred by server worker because provider is not serpapi_lens.',
           })
@@ -434,7 +639,7 @@ export async function POST(req: NextRequest) {
             .insert({
               brand_id: job.brand_id,
               asset_id: job.id,
-              provider: 'serpapi_lens',
+              provider: SERPAPI_LENS_PROVIDER,
               status: 'failed',
               started_at: startedAt,
               finished_at: finishedAt,
@@ -459,7 +664,7 @@ export async function POST(req: NextRequest) {
           {
             assetId: job.id,
             brandId: job.brand_id,
-            provider: 'serpapi_lens',
+            provider: SERPAPI_LENS_PROVIDER,
           },
           TOKEN_TTL_SECONDS
         );
@@ -470,7 +675,7 @@ export async function POST(req: NextRequest) {
             token_hash: hashProviderToken(token),
             asset_id: job.id,
             brand_id: job.brand_id,
-            provider: 'serpapi_lens',
+            provider: SERPAPI_LENS_PROVIDER,
             expires_at: tokenExpiresAt,
             max_fetches: 5,
             fetch_count: 0,
@@ -493,7 +698,7 @@ export async function POST(req: NextRequest) {
             .insert({
               brand_id: job.brand_id,
               asset_id: job.id,
-              provider: 'serpapi_lens',
+              provider: SERPAPI_LENS_PROVIDER,
               status: 'failed',
               started_at: startedAt,
               finished_at: finishedAt,
@@ -515,39 +720,77 @@ export async function POST(req: NextRequest) {
         providerUrl = `${publicOrigin}/api/provider-fetch/${token}`;
       }
 
-      const params = new URLSearchParams({
-        engine: 'google_lens',
-        type: 'all',
-        url: providerUrl,
-        api_key: serpApiKey,
-      });
-
       let status: 'success' | 'failed' = 'failed';
       let errorMessage: string | null = null;
       let matchesFound = 0;
+      let matchesObserved = 0;
       let duplicatesSkipped = 0;
       let invalidResults = 0;
       let failedResults = 0;
+      let providerCallsMade = 0;
+      let openRouterScoresUsed = 0;
+      const providerCalls: Array<{ call: SerpApiSearchCall; runId: string | null }> = [];
 
       try {
-        const resp = await fetch(`https://serpapi.com/search.json?${params.toString()}`, { method: 'GET' });
-        const payload = await resp.json().catch(() => ({}));
+        const maxProviderCalls = Math.max(1, Math.min(settings.maxProviderCallsPerScan, 10));
 
-        await recordBudgetUsage(job.brand_id, 1, estimatedCost);
+        const lensAll = await searchLensAll(providerUrl, serpApiKey);
+        providerCallsMade += 1;
+        providerCalls.push({
+          call: lensAll,
+          runId: await recordProviderRun(job.brand_id, job.id, lensAll, perProviderCallCost),
+        });
 
-        if (!resp.ok) {
-          errorMessage = payload.error || `SerpApi error ${resp.status}`;
+        if (maxProviderCalls > 1) {
+          const lensProducts = await searchLensProducts(providerUrl, serpApiKey);
+          providerCallsMade += 1;
+          providerCalls.push({
+            call: lensProducts,
+            runId: await recordProviderRun(job.brand_id, job.id, lensProducts, perProviderCallCost),
+          });
+        }
+
+        if (maxProviderCalls > 2) {
+          const sourcePayload = providerCalls.find((entry) => entry.call.ok && entry.call.payload)?.call.payload || {};
+          const followupLinks = extractFollowupSerpApiLinks(sourcePayload, maxProviderCalls - 2);
+          for (const link of followupLinks) {
+            const followup = await fetchSerpApiFollowupLink(link, serpApiKey);
+            providerCallsMade += 1;
+            providerCalls.push({
+              call: followup,
+              runId: await recordProviderRun(job.brand_id, job.id, followup, perProviderCallCost),
+            });
+          }
+        }
+
+        const usableCalls = providerCalls.filter(({ call }) => {
+          if (!call.ok) return false;
+          const payloadError = typeof call.payload?.error === 'string' ? call.payload.error : '';
+          return !payloadError || isNoResultsError(payloadError);
+        });
+
+        if (usableCalls.length === 0) {
+          const firstFailure = providerCalls.find(({ call }) => !call.ok || call.payload?.error);
+          const reason = firstFailure?.call.error
+            || (typeof firstFailure?.call.payload?.error === 'string' ? firstFailure?.call.payload?.error : '')
+            || 'SerpApi request failed';
+
+          if (isNoResultsError(reason)) {
+            status = 'success';
+          } else {
+            errorMessage = reason;
+          }
         } else {
-          const visualMatches = Array.isArray(payload.visual_matches) ? payload.visual_matches : [];
-          const exactMatches = Array.isArray(payload.exact_matches) ? payload.exact_matches : [];
-          const combined = [
-            ...visualMatches.map((m: any) => ({ ...m, __kind: 'visual' as const })),
-            ...exactMatches.map((m: any) => ({ ...m, __kind: 'exact' as const })),
-          ].slice(0, MAX_MATCHES_PER_SCAN);
+          const mergedListings = mergeListingsByUrl(
+            usableCalls.flatMap(({ call }) => parseSerpApiListings(call.payload || {}))
+          ).slice(0, MAX_MATCHES_PER_SCAN);
 
           const seenLinks = new Set<string>();
-          for (const match of combined) {
-            const normalizedLink = normalizeUrl(match.link || match.url);
+          const providerPayloads = usableCalls.map(({ call }) => call.payload || {});
+          const defaultProviderRunId = usableCalls.find((entry) => entry.runId)?.runId || null;
+
+          for (const listing of mergedListings) {
+            const normalizedLink = normalizeUrl(listing.link);
             if (!normalizedLink) {
               invalidResults += 1;
               continue;
@@ -568,6 +811,41 @@ export async function POST(req: NextRequest) {
               continue;
             }
 
+            matchesObserved += 1;
+            const similarity = estimateSimilarityFromListing(listing);
+            const copycatImage = normalizeUrl(listing.image || listing.thumbnail || undefined);
+            const sellerName = (listing.sellerName || listing.title || listing.source || domain || '').toString().slice(0, 255);
+            const platform = mapPlatform(domain);
+            const siteVisitors = estimateSiteVisitors(listing, similarity);
+
+            const allowOpenRouterForMatch = Boolean(openRouterApiKey)
+              && settings.revenueScoringOrder === 'openrouter_first'
+              && openRouterScoresUsed < MAX_OPENROUTER_SCORES_PER_SCAN;
+            const score = await scoreRevenue(
+              [{
+                link: normalizedLink,
+                platform,
+                priceValue: listing.priceValue,
+                currency: listing.currency,
+                rating: listing.rating,
+                reviewsCount: listing.reviewsCount,
+                inStock: listing.inStock,
+                position: listing.position,
+                confidence: listing.confidence,
+                similarityScore: similarity,
+              }],
+              {
+                order: allowOpenRouterForMatch ? settings.revenueScoringOrder : 'deterministic_first',
+                openRouterApiKey: allowOpenRouterForMatch ? openRouterApiKey : '',
+                model: settings.openrouterModel || defaultOpenRouterModel,
+                maxTokens: settings.openrouterMaxTokens,
+              }
+            );
+            if (score.modelProvider === 'openrouter') {
+              openRouterScoresUsed += 1;
+            }
+
+            const evidenceSnapshot = normalizeEvidenceSnapshot(listing);
             const { data: existing } = await supabase
               .from('infringements')
               .select('id, status')
@@ -579,13 +857,59 @@ export async function POST(req: NextRequest) {
 
             if (existing) {
               duplicatesSkipped += 1;
+              const { error: updateError } = await supabase
+                .from('infringements')
+                .update({
+                  copycat_image_url: copycatImage,
+                  similarity_score: similarity,
+                  seller_name: sellerName || null,
+                  primary_listing_price_value: listing.priceValue ?? null,
+                  primary_listing_currency: listing.currency || null,
+                  primary_seller_name: sellerName || null,
+                  primary_rating: listing.rating ?? null,
+                  primary_reviews_count: listing.reviewsCount ?? null,
+                  primary_in_stock: listing.inStock ?? null,
+                  primary_condition: listing.condition || null,
+                  primary_listing_position: listing.position ?? null,
+                  revenue_score_version: `${score.modelProvider}:${score.modelName || 'v1'}`,
+                  revenue_confidence: score.confidence,
+                  revenue_at_risk_usd: score.revenueAtRiskUsd,
+                  revenue_lost: score.revenueAtRiskUsd,
+                  site_visitors: siteVisitors,
+                  last_evidence_at: nowIso(),
+                  evidence_snapshot: evidenceSnapshot,
+                  detection_provider: SERPAPI_LENS_PROVIDER,
+                  detection_method: 'google_lens',
+                  source_fingerprint: job.fingerprint || null,
+                })
+                .eq('id', existing.id);
+
+              if (updateError && isMissingColumnError(updateError)) {
+                await supabase
+                  .from('infringements')
+                  .update({
+                    copycat_image_url: copycatImage,
+                    similarity_score: similarity,
+                    seller_name: sellerName || null,
+                    revenue_lost: score.revenueAtRiskUsd,
+                    site_visitors: siteVisitors,
+                    detection_provider: SERPAPI_LENS_PROVIDER,
+                    detection_method: 'google_lens',
+                    source_fingerprint: job.fingerprint || null,
+                  })
+                  .eq('id', existing.id);
+              }
+
+              await persistEvidenceAndOffers(
+                existing.id,
+                job.id,
+                listing,
+                providerPayloads,
+                defaultProviderRunId,
+                score
+              );
               continue;
             }
-
-            const similarity = match.__kind === 'exact' ? 90 : 70;
-            const copycatImage = normalizeUrl(match.image || match.thumbnail || undefined);
-            const sellerName = (match.title || match.source || domain || '').toString().slice(0, 255);
-            const platform = mapPlatform(domain);
 
             const { data: inserted, error: insertError } = await supabase
               .from('infringements')
@@ -594,15 +918,28 @@ export async function POST(req: NextRequest) {
                 original_asset_id: job.id,
                 copycat_image_url: copycatImage,
                 similarity_score: similarity,
-                detection_provider: 'serpapi_lens',
+                detection_provider: SERPAPI_LENS_PROVIDER,
                 detection_method: 'google_lens',
                 source_fingerprint: job.fingerprint || null,
                 platform,
                 infringing_url: normalizedLink,
                 seller_name: sellerName || null,
+                primary_listing_price_value: listing.priceValue ?? null,
+                primary_listing_currency: listing.currency || null,
+                primary_seller_name: sellerName || null,
+                primary_rating: listing.rating ?? null,
+                primary_reviews_count: listing.reviewsCount ?? null,
+                primary_in_stock: listing.inStock ?? null,
+                primary_condition: listing.condition || null,
+                primary_listing_position: listing.position ?? null,
                 country: 'Unknown',
-                site_visitors: 0,
-                revenue_lost: 0,
+                site_visitors: siteVisitors,
+                revenue_lost: score.revenueAtRiskUsd,
+                revenue_score_version: `${score.modelProvider}:${score.modelName || 'v1'}`,
+                revenue_confidence: score.confidence,
+                revenue_at_risk_usd: score.revenueAtRiskUsd,
+                last_evidence_at: nowIso(),
+                evidence_snapshot: evidenceSnapshot,
                 whois_registrar: 'Unknown Registrar',
                 whois_creation_date: 'Not available',
                 whois_registrant_country: 'Unknown',
@@ -613,12 +950,53 @@ export async function POST(req: NextRequest) {
               .select('id')
               .single();
 
-            if (insertError || !inserted) {
+            let insertedRow = inserted;
+            let finalInsertError = insertError;
+
+            if ((insertError || !insertedRow) && isMissingColumnError(insertError)) {
+              const { data: fallbackInserted, error: fallbackInsertError } = await supabase
+                .from('infringements')
+                .insert({
+                  brand_id: job.brand_id,
+                  original_asset_id: job.id,
+                  copycat_image_url: copycatImage,
+                  similarity_score: similarity,
+                  detection_provider: SERPAPI_LENS_PROVIDER,
+                  detection_method: 'google_lens',
+                  source_fingerprint: job.fingerprint || null,
+                  platform,
+                  infringing_url: normalizedLink,
+                  seller_name: sellerName || null,
+                  country: 'Unknown',
+                  site_visitors: siteVisitors,
+                  revenue_lost: score.revenueAtRiskUsd,
+                  whois_registrar: 'Unknown Registrar',
+                  whois_creation_date: 'Not available',
+                  whois_registrant_country: 'Unknown',
+                  hosting_provider: 'Unknown',
+                  hosting_ip_address: 'Not resolved',
+                  status: 'pending_review',
+                })
+                .select('id')
+                .single();
+              insertedRow = fallbackInserted;
+              finalInsertError = fallbackInsertError;
+            }
+
+            if (finalInsertError || !insertedRow) {
               failedResults += 1;
               continue;
             }
 
-            await createTakedownForInfringement(inserted.id);
+            await createTakedownForInfringement(insertedRow.id);
+            await persistEvidenceAndOffers(
+              insertedRow.id,
+              job.id,
+              listing,
+              providerPayloads,
+              defaultProviderRunId,
+              score
+            );
             matchesFound += 1;
           }
 
@@ -626,13 +1004,27 @@ export async function POST(req: NextRequest) {
         }
       } catch (err: any) {
         errorMessage = err?.message || 'SerpApi request failed';
-        await recordBudgetUsage(job.brand_id, 1, estimatedCost);
+      } finally {
+        if (providerCallsMade > 0) {
+          const scanCost = Number((providerCallsMade * perProviderCallCost).toFixed(4));
+          await recordBudgetUsage(job.brand_id, 1, scanCost);
+        }
       }
 
-      const noMatchStreak = matchesFound > 0 ? 0 : (await getNoMatchStreak(job.id)) + 1;
+      const recentMatches = status === 'success'
+        ? await loadRecentMatchHistory(job.id, Math.max(0, settings.lookbackScans - 1))
+        : [];
+      const findingSignal = Math.max(matchesFound, matchesObserved);
       const finishedAt = nowIso();
       const nextScanAt = status === 'success'
-        ? computeNextScanAt(settings, matchesFound, noMatchStreak)
+        ? computeFixedCadenceNextScanAt(
+            {
+              baseIntervalDays: settings.baseIntervalDays,
+              foundIntervalDays: settings.foundIntervalDays,
+              lookbackScans: settings.lookbackScans,
+            },
+            [findingSignal, ...recentMatches]
+          )
         : addHours(settings.retryDelayHours);
 
       await supabase
@@ -650,7 +1042,7 @@ export async function POST(req: NextRequest) {
         .insert({
           brand_id: job.brand_id,
           asset_id: job.id,
-          provider: 'serpapi_lens',
+          provider: SERPAPI_LENS_PROVIDER,
           status,
           started_at: startedAt,
           finished_at: finishedAt,
@@ -658,12 +1050,14 @@ export async function POST(req: NextRequest) {
           duplicates_skipped: duplicatesSkipped,
           invalid_results: invalidResults,
           failed_results: failedResults,
-          estimated_cost_usd: estimatedCost,
+          estimated_cost_usd: Number((providerCallsMade * perProviderCallCost).toFixed(4)),
           error_message: errorMessage,
           metadata: {
             worker: 'server_cron',
             provider_url: providerUrl,
-            noMatchStreak,
+            provider_calls_made: providerCallsMade,
+            observed_matches: matchesObserved,
+            openrouter_scores_used: openRouterScoresUsed,
             idempotencyKey,
           },
         });

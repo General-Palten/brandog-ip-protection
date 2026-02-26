@@ -21,6 +21,8 @@ Brand protection console with a public marketing site and authenticated `/app` w
    - `SCAN_WORKER_SECRET` (optional, protects `/api/scan-worker/run`)
 3. Optional for server-managed SerpApi Lens requests:
    - `SERPAPI_API_KEY`
+   - `OPENROUTER_API_KEY` (optional but recommended for AI revenue scoring in worker)
+   - `OPENROUTER_MODEL` (optional override, default `arcee-ai/trinity-large-preview:free`)
 4. Run the app:
    `npm run dev`
 
@@ -36,9 +38,14 @@ Trigger periodic scans server-side by calling:
 - Header: `x-cron-secret: <SCAN_WORKER_SECRET>`
 
 Recommended cadence: every minute. The worker enforces per-brand daily budget and scan caps from `scan_settings`.
+Worker logic:
+- Runs Lens `type=all` + product enrichment (`type=products`) and follow-up product details (bounded by `max_provider_calls_per_scan`)
+- Stores normalized offers/evidence snapshots and revenue scores
+- Uses fixed rescan policy: `base_interval_days` or `found_interval_days` depending on findings in the last `lookback_scans`
 
 Tokenized provider fetch URLs require the latest Supabase migrations, including:
 - `20260226174500_create_provider_fetch_tokens.sql`
+- `20260226213000_add_product_evidence_and_revenue_scoring.sql`
 
 ## Routes
 

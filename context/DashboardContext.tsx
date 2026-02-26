@@ -111,6 +111,27 @@ const transformSupabaseInfringement = (dbInf: any, brandName: string = 'Unknown'
   originalAssetId: dbInf.original_asset_id || undefined,
   infringingUrl: dbInf.infringing_url || undefined,
   sellerName: dbInf.seller_name || undefined,
+  listingPrice: typeof dbInf.primary_listing_price_value === 'number'
+    ? dbInf.primary_listing_price_value
+    : (dbInf.primary_listing_price_value ? Number(dbInf.primary_listing_price_value) : undefined),
+  listingCurrency: dbInf.primary_listing_currency || undefined,
+  listingPriceText: dbInf.evidence_snapshot?.priceText || undefined,
+  listingRating: typeof dbInf.primary_rating === 'number'
+    ? dbInf.primary_rating
+    : (dbInf.primary_rating ? Number(dbInf.primary_rating) : undefined),
+  listingReviewsCount: dbInf.primary_reviews_count ?? undefined,
+  listingInStock: typeof dbInf.primary_in_stock === 'boolean' ? dbInf.primary_in_stock : undefined,
+  listingCondition: dbInf.primary_condition || undefined,
+  listingPosition: dbInf.primary_listing_position ?? undefined,
+  revenueAtRiskUsd: typeof dbInf.revenue_at_risk_usd === 'number'
+    ? dbInf.revenue_at_risk_usd
+    : (dbInf.revenue_at_risk_usd ? Number(dbInf.revenue_at_risk_usd) : undefined),
+  revenueConfidence: typeof dbInf.revenue_confidence === 'number'
+    ? dbInf.revenue_confidence
+    : (dbInf.revenue_confidence ? Number(dbInf.revenue_confidence) : undefined),
+  evidenceSnapshot: dbInf.evidence_snapshot && typeof dbInf.evidence_snapshot === 'object'
+    ? dbInf.evidence_snapshot
+    : undefined,
   whois: {
     registrar: dbInf.whois_registrar || 'Unknown',
     creationDate: dbInf.whois_creation_date || 'Unknown',
@@ -288,6 +309,37 @@ const computeSimilarityScore = (result: VisionSearchResult, hasFallbackImage: bo
   if (hasPartialMatch) return 70 + (hashOffset % 25); // 70-94
   if (hasFallbackImage) return 50 + (hashOffset % 20); // 50-69
   return 45 + (hashOffset % 15); // 45-59
+};
+
+const estimateSiteVisitorsFromResult = (result: VisionSearchResult): number => {
+  const reviews = typeof result.reviewsCount === 'number' ? Math.max(0, result.reviewsCount) : 0;
+  const rating = typeof result.rating === 'number' ? Math.max(0, Math.min(5, result.rating)) : 0;
+  const position = typeof result.position === 'number' ? Math.max(1, result.position) : 20;
+  const base = 250 + Math.min(30000, reviews * 4);
+  const ratingFactor = 0.75 + (rating / 8);
+  const positionFactor = position <= 3 ? 1.4 : position <= 10 ? 1.05 : 0.8;
+  return Math.max(80, Math.round(base * ratingFactor * positionFactor));
+};
+
+const estimateRevenueAtRiskFromResult = (
+  result: VisionSearchResult,
+  similarityScore: number,
+  siteVisitors: number
+): { revenueUsd: number; confidence: number } => {
+  const price = typeof result.priceValue === 'number' && Number.isFinite(result.priceValue) && result.priceValue > 0
+    ? result.priceValue
+    : 45;
+  const inStockFactor = result.inStock === false ? 0.7 : (result.inStock === true ? 1 : 0.9);
+  const confidence = Math.max(0.2, Math.min(
+    0.99,
+    ((typeof result.confidence === 'number' ? result.confidence : 0.7) * 0.6) + ((similarityScore / 100) * 0.4)
+  ));
+  const conversionProxy = 0.0075 + Math.min(0.02, (similarityScore / 1000));
+  const revenueUsd = price * siteVisitors * conversionProxy * inStockFactor * confidence;
+  return {
+    revenueUsd: Math.max(0, Math.round(revenueUsd)),
+    confidence: Number(confidence.toFixed(4)),
+  };
 };
 
 const GOOGLE_VISION_PROVIDER = 'google_vision';
@@ -2042,8 +2094,35 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     else if (domain.endsWith('.net')) registrar = 'Network Solutions, LLC';
 
     const similarityScore = computeSimilarityScore(result, Boolean(copycatImage));
-    const siteVisitors = Math.floor(Math.random() * 10000) + 100;
-    const revenueLost = Math.floor(Math.random() * 1000) + 50;
+    const siteVisitors = estimateSiteVisitorsFromResult(result);
+    const { revenueUsd: revenueLost, confidence: revenueConfidence } = estimateRevenueAtRiskFromResult(
+      result,
+      similarityScore,
+      siteVisitors
+    );
+    const listingPrice = typeof result.priceValue === 'number' && Number.isFinite(result.priceValue)
+      ? result.priceValue
+      : undefined;
+    const listingCurrency = (result.currency || '').trim() || undefined;
+    const listingRating = typeof result.rating === 'number' && Number.isFinite(result.rating)
+      ? result.rating
+      : undefined;
+    const listingReviewsCount = typeof result.reviewsCount === 'number' && Number.isFinite(result.reviewsCount)
+      ? Math.round(result.reviewsCount)
+      : undefined;
+    const listingInStock = typeof result.inStock === 'boolean' ? result.inStock : undefined;
+    const listingCondition = (result.condition || '').trim() || undefined;
+    const listingPosition = typeof result.position === 'number' && Number.isFinite(result.position)
+      ? Math.round(result.position)
+      : undefined;
+    const evidenceSnapshot = {
+      title: result.pageTitle || undefined,
+      source: result.source || undefined,
+      sellerName: result.sellerName || undefined,
+      priceText: result.priceText || undefined,
+      confidence: result.confidence ?? undefined,
+      rawEvidence: result.rawEvidence || undefined,
+    };
     const activeSearchProvider = getVisionConfig().provider;
     const defaultDetectionProvider = activeSearchProvider === 'serpapi_lens'
       ? SERPAPI_LENS_PROVIDER
@@ -2080,7 +2159,18 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
         country: 'Unknown',
         originalAssetId: originalAsset.id,
         infringingUrl: normalizedUrl,
-        sellerName: result.pageTitle || domain,
+        sellerName: result.sellerName || result.pageTitle || domain,
+        listingPrice,
+        listingCurrency,
+        listingPriceText: result.priceText || undefined,
+        listingRating,
+        listingReviewsCount,
+        listingInStock,
+        listingCondition,
+        listingPosition,
+        revenueAtRiskUsd: revenueLost,
+        revenueConfidence,
+        evidenceSnapshot,
         whois: {
           registrar,
           creationDate: 'Not available',
@@ -2190,10 +2280,23 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       source_fingerprint: options?.sourceFingerprint || originalAsset.fingerprint || null,
       platform,
       infringing_url: normalizedUrl,
-      seller_name: result.pageTitle || domain,
+      seller_name: result.sellerName || result.pageTitle || domain,
       country: 'Unknown',
       site_visitors: siteVisitors,
       revenue_lost: revenueLost,
+      primary_listing_price_value: listingPrice,
+      primary_listing_currency: listingCurrency || null,
+      primary_seller_name: result.sellerName || result.pageTitle || domain,
+      primary_rating: listingRating,
+      primary_reviews_count: listingReviewsCount,
+      primary_in_stock: listingInStock,
+      primary_condition: listingCondition || null,
+      primary_listing_position: listingPosition,
+      revenue_score_version: 'manual_deterministic_v1',
+      revenue_confidence: revenueConfidence,
+      revenue_at_risk_usd: revenueLost,
+      last_evidence_at: new Date().toISOString(),
+      evidence_snapshot: evidenceSnapshot,
       whois_registrar: registrar,
       whois_creation_date: 'Not available',
       whois_registrant_country: 'Unknown',
@@ -2221,7 +2324,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
           similarity_score: similarityScore,
           platform,
           infringing_url: normalizedUrl,
-          seller_name: result.pageTitle || domain,
+          seller_name: result.sellerName || result.pageTitle || domain,
           country: 'Unknown',
           site_visitors: siteVisitors,
           revenue_lost: revenueLost,
