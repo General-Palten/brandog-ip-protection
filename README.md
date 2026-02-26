@@ -15,10 +15,26 @@ Brand protection console with a public marketing site and authenticated `/app` w
 2. Add Supabase env vars in `.env.local` for authenticated mode:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_APP_URL` (public app base URL, used to mint provider fetch URLs for SerpApi)
+   - `SUPABASE_SERVICE_ROLE_KEY` (required for server scan worker and provider fetch proxy)
+   - `LENS_TOKEN_SECRET` (HMAC secret for provider tokens)
+   - `SCAN_WORKER_SECRET` (optional, protects `/api/scan-worker/run`)
 3. Optional for server-managed SerpApi Lens requests:
    - `SERPAPI_API_KEY`
 4. Run the app:
    `npm run dev`
+
+## Scan Worker (Server Cron)
+
+Trigger periodic scans server-side by calling:
+
+- `POST /api/scan-worker/run`
+- Header: `x-cron-secret: <SCAN_WORKER_SECRET>`
+
+Recommended cadence: every minute. The worker enforces per-brand daily budget and scan caps from `scan_settings`.
+
+Tokenized provider fetch URLs require the latest Supabase migrations, including:
+- `20260226174500_create_provider_fetch_tokens.sql`
 
 ## Routes
 

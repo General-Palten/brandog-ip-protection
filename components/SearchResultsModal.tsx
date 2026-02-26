@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useDashboard } from '../context/DashboardContext';
 import { PersistedAsset, VisionSearchResponse, VisionSearchResult } from '../types';
 import { searchByImage } from '../lib/vision-api';
-import { isVisionConfigured } from '../lib/api-config';
+import { isVisionConfigured, getVisionConfig } from '../lib/api-config';
 import {
   X, Loader2, Search, ExternalLink, Plus, AlertTriangle,
   Image as ImageIcon, Globe, Settings, CheckCircle, History, Clock, Trash2
@@ -132,6 +132,9 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
       return;
     }
 
+    const visionConfig = getVisionConfig();
+    const provider = visionConfig.provider;
+
     setIsSearching(true);
     setError(null);
     setSearchResults(null);
@@ -139,8 +142,40 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
 
     try {
       const base64 = await getAssetBase64(asset.id);
+      let providerImageUrl = assetPreviewUrl || undefined;
+
+      if (provider === 'serpapi_lens') {
+        if (asset.id.startsWith('local_')) {
+          setError('Save this asset first so it is uploaded to storage before running Google Lens.');
+          setIsSearching(false);
+          return;
+        }
+
+        const response = await fetch(`/api/assets/${asset.id}/provider-image-url`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: 'serpapi_lens' }),
+        });
+
+        if (!response.ok) {
+          const { error: routeError } = await response.json().catch(() => ({ error: 'Provider URL request failed' }));
+          setError(routeError || 'Provider URL request failed');
+          setIsSearching(false);
+          return;
+        }
+
+        const payload = await response.json();
+        providerImageUrl = payload.providerImageUrl;
+        if (!providerImageUrl) {
+          setError('Could not create an accessible URL for Google Lens. Try again in a moment.');
+          setIsSearching(false);
+          return;
+        }
+      }
+
       const results = await searchByImage(base64, {
-        imageUrl: assetPreviewUrl || undefined,
+        imageUrl: providerImageUrl,
+        providerOverride: provider,
       });
       setSearchResults(results);
 

@@ -302,6 +302,7 @@ const SCAN_WORKER_POLL_INTERVAL_MS = 30000;
 const MAX_SCAN_CLAIM_BATCH_SIZE = 20;
 const SERPAPI_SIGNED_URL_TTL_SECONDS = 120;
 const NO_MATCH_STALE_THRESHOLD = 3;
+const ENABLE_CLIENT_SCAN_WORKER = process.env.NEXT_PUBLIC_ENABLE_CLIENT_SCAN_WORKER === 'true';
 
 interface BrandScanSettings {
   maxScansPerDay: number;
@@ -3644,7 +3645,9 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     });
 
     addNotification('info', `Queued "${file.name}" for continuous web scanning.`);
-    void runScanWorkerCycle();
+    if (ENABLE_CLIENT_SCAN_WORKER) {
+      void runScanWorkerCycle();
+    }
     return data.id;
   }, [
     user,
@@ -3661,7 +3664,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
   ]);
 
   useEffect(() => {
-    if (!canLoadData || !currentBrand || isLocalDemoMode) {
+    if (!ENABLE_CLIENT_SCAN_WORKER || !canLoadData || !currentBrand || isLocalDemoMode) {
       return;
     }
 
