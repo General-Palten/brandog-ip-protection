@@ -205,9 +205,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [isConfigured])
 
-  // Initialize auth state
+  // Initialize auth state — uses onAuthStateChange only (Supabase v2 recommended).
+  // The INITIAL_SESSION event fires immediately when the listener is set up,
+  // so a separate getSession() call is unnecessary and can hang on the
+  // @supabase/ssr session lock.
   useEffect(() => {
     let isMounted = true
+    let initialised = false
 
     if (bypassAuth) {
       setLoading(false)
@@ -219,52 +223,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return
     }
 
-    // Safety timeout - if auth takes more than 10s, stop loading
+    // Safety timeout - if INITIAL_SESSION never fires, stop loading
     const timeout = setTimeout(() => {
-      if (isMounted) {
+      if (isMounted && !initialised) {
         console.warn('Auth timeout - forcing loading to false')
         setLoading(false)
+        initialised = true
       }
     }, 10000)
 
-    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
-      if (!isMounted) return
-      clearTimeout(timeout)
-      if (error) {
-        console.error('Failed to get initial session:', error.message)
-      }
-      setSession(session)
-      setUser(session?.user ?? null)
-
-      if (session?.user) {
-        try {
-          const userProfile = await fetchProfile(
-            session.user.id,
-            session.user.email,
-            session.user.user_metadata?.full_name
-          )
-          if (isMounted) {
-            setProfile(userProfile)
-            await fetchBrands(session.user.id)
-          }
-        } catch (err) {
-          if (isMounted) {
-            console.error('Error during initial load:', err)
-          }
-        }
-      }
-
-      if (isMounted) {
-        setLoading(false)
-      }
-    }).catch(err => {
-      if (!isMounted) return
-      clearTimeout(timeout)
-      console.error('Failed to get session:', err)
-      setLoading(false)
-    })
-
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!isMounted) return
@@ -284,7 +251,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           } catch (err) {
             if (isMounted) {
-              console.error('Error fetching profile:', err)
+              console.error('Error during auth state change:', err)
             }
           }
         } else {
@@ -293,8 +260,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setCurrentBrandId(null)
         }
 
-        if (isMounted) {
+        if (isMounted && !initialised) {
+          clearTimeout(timeout)
           setLoading(false)
+          initialised = true
         }
       }
     )

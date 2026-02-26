@@ -28,11 +28,11 @@ const OnboardingScreen: React.FC = () => {
           return;
         }
         setError(createError.message || 'Failed to create brand');
-      } else {
-        await refreshBrands();
-        if (data) {
-          setCurrentBrandId(data.id);
-        }
+      } else if (data) {
+        // createBrand already updates brands state and fires a background
+        // refresh — no need to await refreshBrands() which would block the
+        // UI on a redundant round-trip.
+        setCurrentBrandId(data.id);
       }
     } catch (err: any) {
       // If AbortError, check if brand was actually created
