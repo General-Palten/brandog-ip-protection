@@ -489,17 +489,12 @@ export const MOCK_DOCS = [
 ];
 
 export const NAV_CATEGORIES = [
-  { title: "Products", items: [
+  { title: "Main", items: [
+    { id: 'dashboard', label: 'Home', icon: 'LayoutDashboard' },
     { id: 'search', label: 'Infringements', icon: 'Search' },
-    { id: 'keywords', label: 'Keywords', icon: 'Type' },
-    { id: 'images', label: 'Images & Videos', icon: 'Image' },
-    { id: 'whitelist', label: 'Whitelist', icon: 'UserCheck' },
-    { id: 'report-bad', label: 'Report Bad Actor', icon: 'UserX' },
-    { id: 'docs', label: 'IP Documents', icon: 'FileText' },
-  ]},
-  { title: "Data", items: [
-    { id: 'dashboard', label: 'Dashboard', icon: 'LayoutDashboard' },
-    { id: 'report-gen', label: 'Report Generator', icon: 'FileBarChart' },
+    { id: 'takedowns', label: 'Takedowns', icon: 'ShieldOff' },
+    { id: 'assets', label: 'Assets', icon: 'FolderOpen' },
+    { id: 'analytics', label: 'Analytics', icon: 'BarChart3' },
   ]}
 ];
 

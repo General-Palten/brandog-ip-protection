@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
-  Search, LayoutDashboard, Type, Image,
-  UserCheck, UserX, FileText, FileBarChart, Settings, Gavel, ShieldOff,
+  Search, LayoutDashboard, Settings, ShieldOff, FolderOpen, BarChart3,
   ArrowRight, RefreshCcw, Command
 } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
@@ -48,14 +47,9 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ navigate }) => {
     // Navigation
     { id: 'nav-dash', label: 'Go to Dashboard', icon: LayoutDashboard, section: 'Navigation', action: () => navigate('dashboard') },
     { id: 'nav-search', label: 'Infringements', icon: Search, section: 'Navigation', action: () => navigate('search') },
-    { id: 'nav-enforcing', label: 'Enforcing', icon: Gavel, section: 'Navigation', action: () => navigate('enforcing') },
     { id: 'nav-takedowns', label: 'Takedowns', icon: ShieldOff, section: 'Navigation', action: () => navigate('takedowns') },
-    { id: 'nav-kw', label: 'Manage Keywords', icon: Type, section: 'Navigation', action: () => navigate('keywords') },
-    { id: 'nav-assets', label: 'View Assets', icon: Image, section: 'Navigation', action: () => navigate('images') },
-    { id: 'nav-white', label: 'Whitelist', icon: UserCheck, section: 'Navigation', action: () => navigate('whitelist') },
-    { id: 'nav-bad', label: 'Report Bad Actor', icon: UserX, section: 'Navigation', action: () => navigate('report-bad') },
-    { id: 'nav-docs', label: 'IP Documents', icon: FileText, section: 'Navigation', action: () => navigate('docs') },
-    { id: 'nav-rep', label: 'Report Generator', icon: FileBarChart, section: 'Navigation', action: () => navigate('report-gen') },
+    { id: 'nav-assets', label: 'Go to Assets', icon: FolderOpen, section: 'Navigation', action: () => navigate('assets') },
+    { id: 'nav-analytics', label: 'Go to Analytics', icon: BarChart3, section: 'Navigation', action: () => navigate('analytics') },
     { id: 'nav-set', label: 'Settings', icon: Settings, section: 'Navigation', action: () => navigate('settings') },
     
     // Actions

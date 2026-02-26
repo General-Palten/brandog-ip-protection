@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import {
-  Search, Type, Image, UserCheck, FileText,
-  LayoutDashboard, FileBarChart, Settings, Check, Command, PanelLeft,
-  Gavel, ShieldOff, BarChart3
+  Search, LayoutDashboard, Settings, Check, Command, PanelLeft,
+  ShieldOff, BarChart3, FolderOpen
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import CreateBrandModal from './CreateBrandModal';
@@ -59,21 +58,14 @@ const Sidebar: React.FC<SidebarProps> = ({
     { group: null, items: [
       { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
     ], hasSeparator: true },
-    { group: 'Enforcement', items: [
+    { group: null, items: [
       { id: 'search', icon: Search, label: 'Infringements', hasAlert: true },
-      { id: 'enforcing', icon: Gavel, label: 'Enforcing' },
       { id: 'takedowns', icon: ShieldOff, label: 'Takedowns' },
-    ]},
-    { group: 'Assets', items: [
-      { id: 'images', icon: Image, label: 'Images & Videos' },
-      { id: 'keywords', icon: Type, label: 'Keywords' },
-      { id: 'whitelist', icon: UserCheck, label: 'Whitelist' },
-      { id: 'docs', icon: FileText, label: 'IP Documents' },
-    ]},
-    { group: 'Data', items: [
+    ], hasSeparator: true },
+    { group: null, items: [
+      { id: 'assets', icon: FolderOpen, label: 'Assets' },
       { id: 'analytics', icon: BarChart3, label: 'Analytics' },
-      { id: 'report-gen', icon: FileBarChart, label: 'Report' },
-    ]}
+    ]},
   ];
 
   // Map brands from AuthContext for display

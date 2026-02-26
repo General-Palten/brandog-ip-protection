@@ -17,8 +17,9 @@ import {
 } from '../../lib/case-status';
 import {
   Flag, Users, DollarSign, Search, Settings, Archive, ChevronDown, ChevronsUpDown,
-  LayoutGrid, List, AlertCircle, X
+  LayoutGrid, List, AlertCircle, X, Shield
 } from 'lucide-react';
+import Whitelist from './Whitelist';
 
 type ViewMode = 'detections' | 'pending' | 'enforcing' | 'takedowns';
 type TakedownSubTab = 'successful' | 'partial' | 'failed' | 'dismissed';
@@ -55,6 +56,7 @@ const Infringements: React.FC = () => {
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDismissModal, setShowDismissModal] = useState(false);
+  const [isManageRulesOpen, setIsManageRulesOpen] = useState(false);
 
   const selectionMode = selectedIds.size > 0;
 
@@ -409,6 +411,15 @@ const Infringements: React.FC = () => {
             <span className="hidden sm:inline">Automation Rules</span>
           </button>
 
+          {/* Manage Rules (Whitelist) */}
+          <button
+            onClick={() => setIsManageRulesOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-background border border-border rounded-lg text-sm font-medium text-primary hover:bg-surface transition-colors"
+          >
+            <Shield size={16} />
+            <span className="hidden sm:inline">Manage Rules</span>
+          </button>
+
           {/* Archive Button */}
           <button className="p-2.5 bg-background border border-border rounded-lg text-primary hover:bg-surface transition-colors">
             <Archive size={18} />
@@ -486,6 +497,33 @@ const Infringements: React.FC = () => {
         onConfirm={handleBulkDismiss}
         itemCount={selectedIds.size}
       />
+
+      {/* Manage Rules Drawer */}
+      {isManageRulesOpen && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 animate-in fade-in"
+            onClick={() => setIsManageRulesOpen(false)}
+          />
+          <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-background border-l border-border shadow-2xl z-50 animate-in slide-in-from-right duration-300 flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Shield size={18} className="text-primary" />
+                <h2 className="text-lg font-medium text-primary">Manage Rules</h2>
+              </div>
+              <button
+                onClick={() => setIsManageRulesOpen(false)}
+                className="p-2 text-secondary hover:text-primary hover:bg-surface rounded-lg transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              <Whitelist />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

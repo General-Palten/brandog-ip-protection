@@ -9,6 +9,9 @@ import { isActiveCaseStatus, isResolvedCaseStatus } from '../../lib/case-status'
 import WorldMap, { getCountryName } from '../WorldMap';
 import CountryViolationsPanel from '../CountryViolationsPanel';
 import CaseDetailModal from '../CaseDetailModal';
+import ReportGenerator from './ReportGenerator';
+
+type AnalyticsTab = 'overview' | 'report-gen';
 
 interface DateRange {
     key: string;
@@ -173,7 +176,12 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null;
 };
 
-const DashboardAnalytics: React.FC = () => {
+interface DashboardAnalyticsProps {
+  initialTab?: AnalyticsTab;
+}
+
+const DashboardAnalytics: React.FC<DashboardAnalyticsProps> = ({ initialTab = 'overview' }) => {
+  const [analyticsTab, setAnalyticsTab] = useState<AnalyticsTab>(initialTab);
   const { infringements, takedownRequests, scanEvents, reportInfringement, dismissInfringement } = useDashboard();
   
   // Global Date Range - Default to Last 30 Days (Normalized)
@@ -693,15 +701,58 @@ const DashboardAnalytics: React.FC = () => {
     setIsDetailOpen(true);
   }, []);
 
+  if (analyticsTab === 'report-gen') {
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500">
+        {/* Header with Tab Bar */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+          <div>
+            <h1 className="font-serif text-3xl text-primary font-medium">Analytics</h1>
+            <p className="text-secondary mt-1 text-sm">Dashboard overview and report generation.</p>
+          </div>
+          <div className="flex bg-surface border border-border p-1 rounded-lg">
+            <button
+              onClick={() => setAnalyticsTab('overview')}
+              className="px-4 py-1.5 text-xs font-medium rounded-md transition-all text-secondary hover:text-primary"
+            >
+              Overview
+            </button>
+            <button
+              onClick={() => setAnalyticsTab('report-gen')}
+              className="px-4 py-1.5 text-xs font-medium rounded-md transition-all bg-zinc-800 text-white shadow-sm"
+            >
+              Report Generator
+            </button>
+          </div>
+        </div>
+        <ReportGenerator />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="flex items-end justify-between">
+      {/* Header with Tab Bar */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
          <div>
-            <h1 className="font-serif text-3xl md:text-4xl text-primary font-medium tracking-tight">Morning Viktor</h1>
-            <p className="text-secondary mt-2 text-sm">Here is a quick look at your current protection operations.</p>
+            <h1 className="font-serif text-3xl text-primary font-medium">Analytics</h1>
+            <p className="text-secondary mt-1 text-sm">Dashboard overview and report generation.</p>
          </div>
          <div className="flex items-center gap-2">
+            <div className="flex bg-surface border border-border p-1 rounded-lg">
+              <button
+                onClick={() => setAnalyticsTab('overview')}
+                className="px-4 py-1.5 text-xs font-medium rounded-md transition-all bg-zinc-800 text-white shadow-sm"
+              >
+                Overview
+              </button>
+              <button
+                onClick={() => setAnalyticsTab('report-gen')}
+                className="px-4 py-1.5 text-xs font-medium rounded-md transition-all text-secondary hover:text-primary"
+              >
+                Report Generator
+              </button>
+            </div>
             <DateRangeSelector selected={globalDateRange} onSelect={setGlobalDateRange} />
             <button className="p-2 border border-border rounded-lg text-secondary hover:text-primary hover:bg-surface transition-colors bg-background">
                 <MoreHorizontal size={16} />

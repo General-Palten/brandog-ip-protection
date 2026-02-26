@@ -18,16 +18,11 @@ import { isSupabaseConfigured } from './lib/supabase';
 
 // Views
 import Infringements from './components/views/Infringements';
-import Keywords from './components/views/Keywords';
-import ImagesVideos from './components/views/ImagesVideos';
-import Whitelist from './components/views/Whitelist';
 import ReportBadActor from './components/views/ReportBadActor';
-import IPDocuments from './components/views/IPDocuments';
 import DashboardAnalytics from './components/views/DashboardAnalytics';
-import ReportGenerator from './components/views/ReportGenerator';
 import Settings from './components/views/Settings';
 import AdminDashboard from './components/views/AdminDashboard';
-import EnforcingWorkspace from './components/views/EnforcingWorkspace';
+import AssetsView from './components/views/AssetsView';
 import { getBypassRole, isBypassAuthEnabled } from './lib/runtime-config';
 
 // Role Selection / Login Screen
@@ -214,11 +209,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
               <div>
                 <h1 className="text-lg font-medium text-primary capitalize">
                   {activeSidebarTab === 'search' ? 'Infringements' :
-                   activeSidebarTab === 'enforcing' ? 'Enforcing' :
                    activeSidebarTab === 'takedowns' ? 'Takedowns' :
-                   activeSidebarTab === 'report-bad' ? 'Takedown Requests' :
-                   activeSidebarTab === 'report-gen' ? 'Report Generator' :
-                   activeSidebarTab === 'docs' ? 'IP Documents' :
+                   activeSidebarTab === 'assets' ? 'Assets' :
+                   activeSidebarTab === 'analytics' ? 'Analytics' :
                    activeSidebarTab}
                 </h1>
               </div>
@@ -318,49 +311,19 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
               <Infringements />
             </div>
           )}
-          {activeSidebarTab === 'keywords' && (
-            <div className="animate-in fade-in slide-in-from-bottom-2">
-              <Keywords />
-            </div>
-          )}
-          {activeSidebarTab === 'images' && (
-            <div className="animate-in fade-in slide-in-from-bottom-2">
-              <ImagesVideos />
-            </div>
-          )}
-          {activeSidebarTab === 'whitelist' && (
-            <div className="animate-in fade-in slide-in-from-bottom-2">
-              <Whitelist />
-            </div>
-          )}
-          {activeSidebarTab === 'report-bad' && (
-            <div className="animate-in fade-in slide-in-from-bottom-2">
-              <ReportBadActor />
-            </div>
-          )}
           {activeSidebarTab === 'takedowns' && (
             <div className="animate-in fade-in slide-in-from-bottom-2">
               {isAdminMode ? <AdminDashboard /> : <ReportBadActor />}
             </div>
           )}
-          {activeSidebarTab === 'enforcing' && (
+          {activeSidebarTab === 'assets' && (
             <div className="animate-in fade-in slide-in-from-bottom-2">
-              <EnforcingWorkspace mode={isAdminMode ? 'lawyer' : 'member'} />
+              <AssetsView />
             </div>
           )}
-          {activeSidebarTab === 'docs' && (
-            <div className="animate-in fade-in slide-in-from-bottom-2">
-              <IPDocuments />
-            </div>
-          )}
-          {activeSidebarTab === 'dashboard' && (
+          {(activeSidebarTab === 'dashboard' || activeSidebarTab === 'analytics') && (
             <div className="animate-in fade-in slide-in-from-bottom-2">
               <DashboardAnalytics />
-            </div>
-          )}
-          {activeSidebarTab === 'report-gen' && (
-            <div className="animate-in fade-in slide-in-from-bottom-2">
-              <ReportGenerator />
             </div>
           )}
           {activeSidebarTab === 'settings' && (
