@@ -91,6 +91,18 @@ const isAbortLikeError = (error: unknown): boolean => {
   return maybeError.name === 'AbortError' || message.includes('aborted')
 }
 
+const buildAuthRedirectUrl = (path: string): string | undefined => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const runtimeOrigin = typeof window !== 'undefined'
+    ? window.location.origin
+    : (process.env.NEXT_PUBLIC_APP_URL || '').trim()
+
+  if (!runtimeOrigin) return undefined
+
+  const base = runtimeOrigin.replace(/\/+$/, '')
+  return `${base}${normalizedPath}`
+}
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<AuthProfile | null>(null)
@@ -182,8 +194,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setBrands(data || [])
 
       // Set first brand as current if none selected
-      if (data && data.length > 0 && !currentBrandId) {
-        setCurrentBrandId(data[0].id)
+      if (data && data.length > 0) {
+        setCurrentBrandId(prev => prev || data[0].id)
       }
     } catch (error) {
       if (isAbortLikeError(error)) {
@@ -191,7 +203,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       throw error
     }
-  }, [isConfigured, currentBrandId])
+  }, [isConfigured])
 
   // Initialize auth state
   useEffect(() => {
@@ -300,11 +312,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { error: { message: 'Supabase not configured' } as AuthError }
     }
 
+    const emailRedirectTo = buildAuthRedirectUrl('/auth')
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { full_name: fullName }
+        data: { full_name: fullName },
+        emailRedirectTo,
       }
     })
 
