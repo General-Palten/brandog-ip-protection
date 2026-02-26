@@ -203,19 +203,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
         
         {/* Top Bar - Solid background to prevent transparency on scroll */}
         <header className="sticky top-0 z-40 bg-background border-b border-border px-6 py-4 flex items-center justify-between">
-           {/* Left: Page Title */}
-           <div className="flex items-center gap-4 flex-1">
-              {/* Page Title */}
-              <div>
-                <h1 className="text-lg font-medium text-primary capitalize">
-                  {activeSidebarTab === 'search' ? 'Infringements' :
-                   activeSidebarTab === 'takedowns' ? 'Takedowns' :
-                   activeSidebarTab === 'assets' ? 'Assets' :
-                   activeSidebarTab === 'analytics' ? 'Analytics' :
-                   activeSidebarTab}
-                </h1>
-              </div>
-           </div>
+           {/* Left: spacer */}
+           <div className="flex-1" />
 
            {/* Right: Actions */}
            <div className="flex items-center gap-3">

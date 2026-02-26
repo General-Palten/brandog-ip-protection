@@ -6,6 +6,7 @@ import StatusBadge from './ui/StatusBadge';
 import { ImageOff, ExternalLink, MessageSquare, AlertTriangle, AlertCircle, Bell } from 'lucide-react';
 import { formatRevenueDisplay, getEffectivePriority } from '../lib/priority';
 import { needsMemberInput } from '../lib/case-status';
+import { PLATFORM_CONFIG } from '../constants';
 
 interface InfringementTableProps {
   items: InfringementItem[];
@@ -60,6 +61,15 @@ const InfringementTable: React.FC<InfringementTableProps> = ({ items, onRowClick
             </th>
             <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
               Infringement
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
+              Status
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
+              Platform Type
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider w-20">
+              Match
             </th>
             <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider w-20">
               Image
@@ -136,11 +146,25 @@ const InfringementTable: React.FC<InfringementTableProps> = ({ items, onRowClick
                     <div className="flex items-center gap-2">
                       <PlatformIcon platform={item.platform} size={12} />
                       <span className="text-xs text-secondary">{item.platform}</span>
-                      <span className="text-xs text-secondary">•</span>
-                      <span className="text-xs font-mono text-secondary">{item.similarityScore}% match</span>
                     </div>
-                    <StatusBadge status={item.status} />
                   </div>
+                </td>
+
+                {/* Status Column */}
+                <td className="px-4 py-3">
+                  <StatusBadge status={item.status} />
+                </td>
+
+                {/* Platform Type Column */}
+                <td className="px-4 py-3">
+                  <span className="text-xs text-secondary capitalize">
+                    {PLATFORM_CONFIG[item.platform]?.category === 'marketplace' ? 'Marketplace' : 'Social'}
+                  </span>
+                </td>
+
+                {/* Match Column */}
+                <td className="px-4 py-3">
+                  <span className="text-xs font-mono text-secondary">{item.similarityScore}%</span>
                 </td>
 
                 {/* Image Column */}

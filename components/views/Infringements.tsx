@@ -37,6 +37,11 @@ interface CategoryTab {
 const ALL_CATEGORY_TABS: CategoryTab[] = [
   { id: 'all', label: 'All', filter: () => true },
   {
+    id: 'enforcing',
+    label: 'Enforcing',
+    filter: (item) => isEnforcingStatus(item.status),
+  },
+  {
     id: 'marketplace',
     label: 'Marketplaces',
     filter: (item) => PLATFORM_CONFIG[item.platform]?.category === 'marketplace',
@@ -61,8 +66,7 @@ const ALL_CATEGORY_TABS: CategoryTab[] = [
     label: 'Pending',
     filter: (item) =>
       isPendingStatus(item.status) ||
-      isDetectionStatus(item.status) ||
-      isEnforcingStatus(item.status),
+      isDetectionStatus(item.status),
   },
   {
     id: 'resolved',
@@ -84,6 +88,7 @@ const ALL_CATEGORY_TABS: CategoryTab[] = [
 
 const DEFAULT_VISIBLE_TAB_IDS = [
   'all',
+  'enforcing',
   'marketplace',
   'third-party',
   'flagged',
@@ -504,6 +509,30 @@ const Infringements: React.FC = () => {
         </div>
       </div>
 
+      {/* ── Stats Cards ─────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard
+          icon={DollarSign}
+          title="Value of Listings Removed"
+          value={`$${stats.valueRemoved.toLocaleString('en-US')}`}
+        />
+        <StatsCard
+          icon={ShieldCheck}
+          title="Completion Rate"
+          value={`${stats.completionRate.toFixed(1)}%`}
+        />
+        <StatsCard
+          icon={Clock}
+          title="Resolution Time"
+          value={`${stats.medianDays.toFixed(1)} days`}
+        />
+        <StatsCard
+          icon={Globe}
+          title="Platforms"
+          value={stats.platformCount.toString()}
+        />
+      </div>
+
       {/* ── Category Tabs ───────────────────────────────────────────────────── */}
       <ShadTabs>
         <ShadTabsList>
@@ -528,30 +557,6 @@ const Infringements: React.FC = () => {
           </button>
         </ShadTabsList>
       </ShadTabs>
-
-      {/* ── Stats Cards ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard
-          icon={DollarSign}
-          title="Value of Listings Removed"
-          value={`$${stats.valueRemoved.toLocaleString('en-US')}`}
-        />
-        <StatsCard
-          icon={ShieldCheck}
-          title="Completion Rate"
-          value={`${stats.completionRate.toFixed(1)}%`}
-        />
-        <StatsCard
-          icon={Clock}
-          title="Resolution Time"
-          value={`${stats.medianDays.toFixed(1)} days`}
-        />
-        <StatsCard
-          icon={Globe}
-          title="Platforms"
-          value={stats.platformCount.toString()}
-        />
-      </div>
 
       {/* ── Bulk Action Bar ─────────────────────────────────────────────────── */}
       {selectionMode && (
