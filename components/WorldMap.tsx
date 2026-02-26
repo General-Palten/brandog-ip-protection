@@ -16,38 +16,85 @@ import { InfringementItem } from '../types';
 // TopoJSON URL for world map
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 
-// ISO 2-letter to name mapping
+// ISO 2-letter to name mapping (~195 countries)
 const COUNTRY_DATA: Record<string, { name: string; iso3: string }> = {
     AF: { name: 'Afghanistan', iso3: 'AFG' },
     AL: { name: 'Albania', iso3: 'ALB' },
     DZ: { name: 'Algeria', iso3: 'DZA' },
     AD: { name: 'Andorra', iso3: 'AND' },
     AO: { name: 'Angola', iso3: 'AGO' },
+    AG: { name: 'Antigua and Barbuda', iso3: 'ATG' },
     AR: { name: 'Argentina', iso3: 'ARG' },
     AM: { name: 'Armenia', iso3: 'ARM' },
     AU: { name: 'Australia', iso3: 'AUS' },
     AT: { name: 'Austria', iso3: 'AUT' },
     AZ: { name: 'Azerbaijan', iso3: 'AZE' },
+    BS: { name: 'Bahamas', iso3: 'BHS' },
+    BH: { name: 'Bahrain', iso3: 'BHR' },
     BD: { name: 'Bangladesh', iso3: 'BGD' },
+    BB: { name: 'Barbados', iso3: 'BRB' },
     BY: { name: 'Belarus', iso3: 'BLR' },
     BE: { name: 'Belgium', iso3: 'BEL' },
+    BZ: { name: 'Belize', iso3: 'BLZ' },
+    BJ: { name: 'Benin', iso3: 'BEN' },
+    BT: { name: 'Bhutan', iso3: 'BTN' },
+    BO: { name: 'Bolivia', iso3: 'BOL' },
+    BA: { name: 'Bosnia and Herzegovina', iso3: 'BIH' },
+    BW: { name: 'Botswana', iso3: 'BWA' },
     BR: { name: 'Brazil', iso3: 'BRA' },
+    BN: { name: 'Brunei', iso3: 'BRN' },
     BG: { name: 'Bulgaria', iso3: 'BGR' },
+    BF: { name: 'Burkina Faso', iso3: 'BFA' },
+    BI: { name: 'Burundi', iso3: 'BDI' },
+    CV: { name: 'Cabo Verde', iso3: 'CPV' },
+    KH: { name: 'Cambodia', iso3: 'KHM' },
+    CM: { name: 'Cameroon', iso3: 'CMR' },
     CA: { name: 'Canada', iso3: 'CAN' },
+    CF: { name: 'Central African Republic', iso3: 'CAF' },
+    TD: { name: 'Chad', iso3: 'TCD' },
     CL: { name: 'Chile', iso3: 'CHL' },
     CN: { name: 'China', iso3: 'CHN' },
     CO: { name: 'Colombia', iso3: 'COL' },
+    KM: { name: 'Comoros', iso3: 'COM' },
+    CG: { name: 'Congo', iso3: 'COG' },
+    CD: { name: 'Democratic Republic of the Congo', iso3: 'COD' },
+    CR: { name: 'Costa Rica', iso3: 'CRI' },
+    CI: { name: "Côte d'Ivoire", iso3: 'CIV' },
     HR: { name: 'Croatia', iso3: 'HRV' },
+    CU: { name: 'Cuba', iso3: 'CUB' },
+    CY: { name: 'Cyprus', iso3: 'CYP' },
     CZ: { name: 'Czechia', iso3: 'CZE' },
     DK: { name: 'Denmark', iso3: 'DNK' },
+    DJ: { name: 'Djibouti', iso3: 'DJI' },
+    DM: { name: 'Dominica', iso3: 'DMA' },
+    DO: { name: 'Dominican Republic', iso3: 'DOM' },
+    EC: { name: 'Ecuador', iso3: 'ECU' },
     EG: { name: 'Egypt', iso3: 'EGY' },
+    SV: { name: 'El Salvador', iso3: 'SLV' },
+    GQ: { name: 'Equatorial Guinea', iso3: 'GNQ' },
+    ER: { name: 'Eritrea', iso3: 'ERI' },
     EE: { name: 'Estonia', iso3: 'EST' },
+    SZ: { name: 'Eswatini', iso3: 'SWZ' },
+    ET: { name: 'Ethiopia', iso3: 'ETH' },
+    FJ: { name: 'Fiji', iso3: 'FJI' },
     FI: { name: 'Finland', iso3: 'FIN' },
     FR: { name: 'France', iso3: 'FRA' },
+    GA: { name: 'Gabon', iso3: 'GAB' },
+    GM: { name: 'Gambia', iso3: 'GMB' },
+    GE: { name: 'Georgia', iso3: 'GEO' },
     DE: { name: 'Germany', iso3: 'DEU' },
+    GH: { name: 'Ghana', iso3: 'GHA' },
     GR: { name: 'Greece', iso3: 'GRC' },
+    GD: { name: 'Grenada', iso3: 'GRD' },
+    GT: { name: 'Guatemala', iso3: 'GTM' },
+    GN: { name: 'Guinea', iso3: 'GIN' },
+    GW: { name: 'Guinea-Bissau', iso3: 'GNB' },
+    GY: { name: 'Guyana', iso3: 'GUY' },
+    HT: { name: 'Haiti', iso3: 'HTI' },
+    HN: { name: 'Honduras', iso3: 'HND' },
     HK: { name: 'Hong Kong', iso3: 'HKG' },
     HU: { name: 'Hungary', iso3: 'HUN' },
+    IS: { name: 'Iceland', iso3: 'ISL' },
     IN: { name: 'India', iso3: 'IND' },
     ID: { name: 'Indonesia', iso3: 'IDN' },
     IR: { name: 'Iran', iso3: 'IRN' },
@@ -55,21 +102,55 @@ const COUNTRY_DATA: Record<string, { name: string; iso3: string }> = {
     IE: { name: 'Ireland', iso3: 'IRL' },
     IL: { name: 'Israel', iso3: 'ISR' },
     IT: { name: 'Italy', iso3: 'ITA' },
+    JM: { name: 'Jamaica', iso3: 'JAM' },
     JP: { name: 'Japan', iso3: 'JPN' },
+    JO: { name: 'Jordan', iso3: 'JOR' },
     KZ: { name: 'Kazakhstan', iso3: 'KAZ' },
     KE: { name: 'Kenya', iso3: 'KEN' },
+    KI: { name: 'Kiribati', iso3: 'KIR' },
+    KP: { name: 'North Korea', iso3: 'PRK' },
     KR: { name: 'South Korea', iso3: 'KOR' },
     KW: { name: 'Kuwait', iso3: 'KWT' },
+    KG: { name: 'Kyrgyzstan', iso3: 'KGZ' },
+    LA: { name: 'Laos', iso3: 'LAO' },
     LV: { name: 'Latvia', iso3: 'LVA' },
+    LB: { name: 'Lebanon', iso3: 'LBN' },
+    LS: { name: 'Lesotho', iso3: 'LSO' },
+    LR: { name: 'Liberia', iso3: 'LBR' },
+    LY: { name: 'Libya', iso3: 'LBY' },
+    LI: { name: 'Liechtenstein', iso3: 'LIE' },
     LT: { name: 'Lithuania', iso3: 'LTU' },
+    LU: { name: 'Luxembourg', iso3: 'LUX' },
+    MG: { name: 'Madagascar', iso3: 'MDG' },
+    MW: { name: 'Malawi', iso3: 'MWI' },
     MY: { name: 'Malaysia', iso3: 'MYS' },
+    MV: { name: 'Maldives', iso3: 'MDV' },
+    ML: { name: 'Mali', iso3: 'MLI' },
+    MT: { name: 'Malta', iso3: 'MLT' },
+    MR: { name: 'Mauritania', iso3: 'MRT' },
+    MU: { name: 'Mauritius', iso3: 'MUS' },
     MX: { name: 'Mexico', iso3: 'MEX' },
+    MD: { name: 'Moldova', iso3: 'MDA' },
+    MC: { name: 'Monaco', iso3: 'MCO' },
+    MN: { name: 'Mongolia', iso3: 'MNG' },
+    ME: { name: 'Montenegro', iso3: 'MNE' },
     MA: { name: 'Morocco', iso3: 'MAR' },
+    MZ: { name: 'Mozambique', iso3: 'MOZ' },
+    MM: { name: 'Myanmar', iso3: 'MMR' },
+    NA: { name: 'Namibia', iso3: 'NAM' },
+    NP: { name: 'Nepal', iso3: 'NPL' },
     NL: { name: 'Netherlands', iso3: 'NLD' },
     NZ: { name: 'New Zealand', iso3: 'NZL' },
+    NI: { name: 'Nicaragua', iso3: 'NIC' },
+    NE: { name: 'Niger', iso3: 'NER' },
     NG: { name: 'Nigeria', iso3: 'NGA' },
+    MK: { name: 'North Macedonia', iso3: 'MKD' },
     NO: { name: 'Norway', iso3: 'NOR' },
+    OM: { name: 'Oman', iso3: 'OMN' },
     PK: { name: 'Pakistan', iso3: 'PAK' },
+    PA: { name: 'Panama', iso3: 'PAN' },
+    PG: { name: 'Papua New Guinea', iso3: 'PNG' },
+    PY: { name: 'Paraguay', iso3: 'PRY' },
     PE: { name: 'Peru', iso3: 'PER' },
     PH: { name: 'Philippines', iso3: 'PHL' },
     PL: { name: 'Poland', iso3: 'POL' },
@@ -77,25 +158,66 @@ const COUNTRY_DATA: Record<string, { name: string; iso3: string }> = {
     QA: { name: 'Qatar', iso3: 'QAT' },
     RO: { name: 'Romania', iso3: 'ROU' },
     RU: { name: 'Russia', iso3: 'RUS' },
+    RW: { name: 'Rwanda', iso3: 'RWA' },
+    KN: { name: 'Saint Kitts and Nevis', iso3: 'KNA' },
+    LC: { name: 'Saint Lucia', iso3: 'LCA' },
+    VC: { name: 'Saint Vincent and the Grenadines', iso3: 'VCT' },
+    WS: { name: 'Samoa', iso3: 'WSM' },
+    ST: { name: 'Sao Tome and Principe', iso3: 'STP' },
     SA: { name: 'Saudi Arabia', iso3: 'SAU' },
+    SN: { name: 'Senegal', iso3: 'SEN' },
     RS: { name: 'Serbia', iso3: 'SRB' },
+    SC: { name: 'Seychelles', iso3: 'SYC' },
+    SL: { name: 'Sierra Leone', iso3: 'SLE' },
     SG: { name: 'Singapore', iso3: 'SGP' },
     SK: { name: 'Slovakia', iso3: 'SVK' },
     SI: { name: 'Slovenia', iso3: 'SVN' },
+    SB: { name: 'Solomon Islands', iso3: 'SLB' },
+    SO: { name: 'Somalia', iso3: 'SOM' },
     ZA: { name: 'South Africa', iso3: 'ZAF' },
+    SS: { name: 'South Sudan', iso3: 'SSD' },
     ES: { name: 'Spain', iso3: 'ESP' },
+    LK: { name: 'Sri Lanka', iso3: 'LKA' },
+    SD: { name: 'Sudan', iso3: 'SDN' },
+    SR: { name: 'Suriname', iso3: 'SUR' },
     SE: { name: 'Sweden', iso3: 'SWE' },
     CH: { name: 'Switzerland', iso3: 'CHE' },
+    SY: { name: 'Syria', iso3: 'SYR' },
     TW: { name: 'Taiwan', iso3: 'TWN' },
+    TJ: { name: 'Tajikistan', iso3: 'TJK' },
+    TZ: { name: 'Tanzania', iso3: 'TZA' },
     TH: { name: 'Thailand', iso3: 'THA' },
+    TL: { name: 'Timor-Leste', iso3: 'TLS' },
+    TG: { name: 'Togo', iso3: 'TGO' },
+    TO: { name: 'Tonga', iso3: 'TON' },
+    TT: { name: 'Trinidad and Tobago', iso3: 'TTO' },
+    TN: { name: 'Tunisia', iso3: 'TUN' },
     TR: { name: 'Turkey', iso3: 'TUR' },
+    TM: { name: 'Turkmenistan', iso3: 'TKM' },
+    UG: { name: 'Uganda', iso3: 'UGA' },
     UA: { name: 'Ukraine', iso3: 'UKR' },
     AE: { name: 'United Arab Emirates', iso3: 'ARE' },
     GB: { name: 'United Kingdom', iso3: 'GBR' },
     US: { name: 'United States', iso3: 'USA' },
+    UY: { name: 'Uruguay', iso3: 'URY' },
+    UZ: { name: 'Uzbekistan', iso3: 'UZB' },
+    VU: { name: 'Vanuatu', iso3: 'VUT' },
+    VE: { name: 'Venezuela', iso3: 'VEN' },
     VN: { name: 'Vietnam', iso3: 'VNM' },
+    YE: { name: 'Yemen', iso3: 'YEM' },
+    ZM: { name: 'Zambia', iso3: 'ZMB' },
+    ZW: { name: 'Zimbabwe', iso3: 'ZWE' },
     // Common aliases
     UK: { name: 'United Kingdom', iso3: 'GBR' },
+    XK: { name: 'Kosovo', iso3: 'XKX' },
+    PS: { name: 'Palestine', iso3: 'PSE' },
+    EH: { name: 'Western Sahara', iso3: 'ESH' },
+    FK: { name: 'Falkland Islands', iso3: 'FLK' },
+    NC: { name: 'New Caledonia', iso3: 'NCL' },
+    GF: { name: 'French Guiana', iso3: 'GUF' },
+    TF: { name: 'French Southern Territories', iso3: 'ATF' },
+    GL: { name: 'Greenland', iso3: 'GRL' },
+    PR: { name: 'Puerto Rico', iso3: 'PRI' },
 };
 
 // Reverse lookup: ISO3 to ISO2
@@ -198,13 +320,14 @@ const WorldMap: React.FC<WorldMapProps> = ({
         const name = props.name || props.NAME || 'Unknown';
 
         // Try to get ISO2 code from various properties
+        // Note: Natural Earth TopoJSON uses '-99' as a sentinel for missing ISO_A2
         let iso2 = props.ISO_A2;
-        if (!iso2 && props.ISO_A3) {
+        if ((!iso2 || iso2 === '-99') && props.ISO_A3) {
             iso2 = ISO3_TO_ISO2[props.ISO_A3];
         }
 
         // Fallback: try to find by name
-        if (!iso2) {
+        if (!iso2 || iso2 === '-99') {
             const entry = Object.entries(COUNTRY_DATA).find(
                 ([, data]) => data.name.toLowerCase() === name.toLowerCase()
             );
@@ -252,8 +375,8 @@ const WorldMap: React.FC<WorldMapProps> = ({
             <ComposableMap
                 projection="geoMercator"
                 projectionConfig={{
-                    scale: 120,
-                    center: [0, 30],
+                    scale: 100,
+                    center: [0, 35],
                 }}
                 className="w-full h-full"
             >
@@ -304,27 +427,26 @@ const WorldMap: React.FC<WorldMapProps> = ({
             <Tooltip content={tooltipContent} position={tooltipPosition} />
 
             {/* Legend */}
-            <div className="absolute bottom-4 left-4 bg-background/90 border border-border rounded-lg p-3">
-                <div className="text-[10px] font-medium text-secondary uppercase tracking-wider mb-2">Violations</div>
-                <div className="flex items-center gap-2 text-[10px]">
-                    <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 rounded border border-border" style={{ backgroundColor: 'rgb(var(--surface))' }} />
+            <div className="absolute bottom-2 left-2 bg-background/90 border border-border rounded-md px-2 py-1.5">
+                <div className="flex items-center gap-1.5 text-[9px]">
+                    <div className="flex items-center gap-0.5">
+                        <div className="w-2.5 h-2.5 rounded-sm border border-border" style={{ backgroundColor: 'rgb(var(--surface))' }} />
                         <span className="text-secondary">0</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 rounded" style={{ backgroundColor: '#fef3c7' }} />
+                    <div className="flex items-center gap-0.5">
+                        <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: '#fef3c7' }} />
                         <span className="text-secondary">1-5</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 rounded" style={{ backgroundColor: '#fbbf24' }} />
+                    <div className="flex items-center gap-0.5">
+                        <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: '#fbbf24' }} />
                         <span className="text-secondary">6-15</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 rounded" style={{ backgroundColor: '#f97316' }} />
+                    <div className="flex items-center gap-0.5">
+                        <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: '#f97316' }} />
                         <span className="text-secondary">16-30</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 rounded" style={{ backgroundColor: '#ef4444' }} />
+                    <div className="flex items-center gap-0.5">
+                        <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: '#ef4444' }} />
                         <span className="text-secondary">31+</span>
                     </div>
                 </div>

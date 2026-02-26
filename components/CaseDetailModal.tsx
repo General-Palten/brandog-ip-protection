@@ -9,6 +9,7 @@ import ImageCarousel from './ui/ImageCarousel';
 import TrademarkMatchPanel from './TrademarkMatchPanel';
 import { useDashboard } from '../context/DashboardContext';
 import { needsMemberInput, canRetry, isDetectionStatus } from '../lib/case-status';
+import { getCountryName } from './WorldMap';
 import { getEffectivePriority, formatRevenueDisplay } from '../lib/priority';
 import {
   ExternalLink, Copy, Camera, FileText,
@@ -355,7 +356,7 @@ const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                 </div>
                 <div>
                    <label className="block text-xs text-secondary mb-1">Seller Location</label>
-                   <p className="font-mono text-lg text-primary">{item.country}</p>
+                   <p className="font-mono text-lg text-primary">{getCountryName(item.country)}</p>
                 </div>
               </div>
 

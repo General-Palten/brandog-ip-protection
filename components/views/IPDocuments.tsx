@@ -15,7 +15,11 @@ import {
   type IPDocumentItem
 } from '../../lib/data-service';
 
-const IPDocuments: React.FC = () => {
+interface IPDocumentsProps {
+  onUploadRef?: React.RefObject<(() => void) | null>;
+}
+
+const IPDocuments: React.FC<IPDocumentsProps> = ({ onUploadRef }) => {
   const { user, currentBrand } = useAuth();
   const { addNotification } = useDashboard();
 
@@ -237,6 +241,18 @@ const IPDocuments: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // Expose upload trigger to parent
+  useEffect(() => {
+    if (onUploadRef && 'current' in onUploadRef) {
+      (onUploadRef as React.MutableRefObject<(() => void) | null>).current = () => setIsModalOpen(true);
+    }
+    return () => {
+      if (onUploadRef && 'current' in onUploadRef) {
+        (onUploadRef as React.MutableRefObject<(() => void) | null>).current = null;
+      }
+    };
+  }, [onUploadRef]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -256,14 +272,6 @@ const IPDocuments: React.FC = () => {
         accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
         onChange={handleFileSelect}
       />
-
-      <div className="flex justify-between items-end">
-         <div>
-            <h1 className="font-serif text-3xl text-primary font-medium">IP Documents</h1>
-            <p className="text-secondary mt-1 text-sm">Store your trademarks and copyright registrations.</p>
-         </div>
-         <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Upload Document</Button>
-      </div>
 
       {documents.length === 0 ? (
         <div className="text-center py-12 text-secondary">

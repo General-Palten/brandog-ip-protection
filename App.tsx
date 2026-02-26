@@ -18,7 +18,7 @@ import { isSupabaseConfigured } from './lib/supabase';
 
 // Views
 import Infringements from './components/views/Infringements';
-import ReportBadActor from './components/views/ReportBadActor';
+import TakedownResults from './components/views/TakedownResults';
 import DashboardAnalytics from './components/views/DashboardAnalytics';
 import Settings from './components/views/Settings';
 import AdminDashboard from './components/views/AdminDashboard';
@@ -313,7 +313,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ userRole, onLogout }) => {
           )}
           {activeSidebarTab === 'takedowns' && (
             <div className="animate-in fade-in slide-in-from-bottom-2">
-              {isAdminMode ? <AdminDashboard /> : <ReportBadActor />}
+              {isAdminMode ? <AdminDashboard /> : <TakedownResults />}
             </div>
           )}
           {activeSidebarTab === 'assets' && (

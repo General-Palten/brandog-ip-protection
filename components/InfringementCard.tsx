@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { InfringementItem } from '../types';
 import {
-  GitCommit, Users, Monitor, DollarSign,
-  ChevronDown, Flag, CheckCircle, ExternalLink, MoreVertical,
+  Flag, CheckCircle, ExternalLink, MoreVertical,
   Clock, AlertCircle, XCircle, ShieldCheck, ImageOff, MessageSquare, Bell
 } from 'lucide-react';
 import PlatformIcon from './ui/PlatformIcon';
-import BentoCard from './ui/BentoCard';
 import { useDashboard } from '../context/DashboardContext';
 import { canTransitionCaseStatus, needsMemberInput } from '../lib/case-status';
-import { formatRevenueDisplay, getEffectivePriority, getPriorityClasses } from '../lib/priority';
+import { formatRevenueDisplay, getEffectivePriority } from '../lib/priority';
 
 interface InfringementCardProps {
   item: InfringementItem;
@@ -25,157 +23,125 @@ const InfringementCard: React.FC<InfringementCardProps> = ({ item, onDismiss, on
   const { getAssetURL, getUnreadUpdateCount } = useDashboard();
   const canDismiss = canTransitionCaseStatus(item.status, 'dismissed_by_member');
 
-  // Get unread message count for this case
   const unreadCount = getUnreadUpdateCount(item.id);
-
-  // Priority and revenue display
   const priority = getEffectivePriority(item);
   const revenueDisplay = formatRevenueDisplay(item);
   const showNeedsInput = needsMemberInput(item.status);
 
-  // Load original image from IndexedDB if originalAssetId is present and originalImage is empty
   useEffect(() => {
     if (!item.originalImage && item.originalAssetId) {
       getAssetURL(item.originalAssetId)
         .then(url => setOriginalImageUrl(url))
-        .catch(err => {
-          console.error('Failed to load original asset:', err);
-          setImageLoadError(prev => ({ ...prev, original: true }));
-        });
+        .catch(() => setImageLoadError(prev => ({ ...prev, original: true })));
     } else {
       setOriginalImageUrl(item.originalImage);
     }
   }, [item.originalImage, item.originalAssetId, getAssetURL]);
 
   return (
-    <BentoCard className={`h-full hover:border-primary/50 transition-colors duration-300 group ${isSelected ? 'border-primary ring-2 ring-primary/20' : ''}`}>
-      <div className="flex flex-col h-full gap-6">
-        {/* Header */}
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-3 min-w-0">
-            {/* Priority indicator */}
-            <div className={`w-2 h-2 rounded-full shrink-0 ${
-              priority === 'high' ? 'bg-red-500' :
-              priority === 'medium' ? 'bg-orange-400' : 'bg-yellow-400'
-            }`} title={`${priority} priority`} />
-            <h3 className="font-semibold text-lg text-primary truncate tracking-tight">{item.brandName}</h3>
-            {item.isTrademarked && (
-              <span className="text-[10px] font-mono bg-background border border-border text-secondary px-1.5 py-0.5 rounded-lg shrink-0">TM</span>
-            )}
+    <div className={`bg-surface border border-border rounded-xl shadow-sm flex flex-col h-full hover:border-secondary/50 transition-colors group ${isSelected ? 'border-primary ring-2 ring-primary/20' : ''}`}>
+      {/* Image comparison — compact */}
+      <div className="flex gap-px overflow-hidden rounded-t-xl">
+        <div className="flex-1 aspect-[4/3] bg-zinc-900 relative overflow-hidden">
+          {originalImageUrl && !imageLoadError.original ? (
+            <img
+              src={originalImageUrl}
+              alt="Original"
+              className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+              onError={() => setImageLoadError(prev => ({ ...prev, original: true }))}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-secondary">
+              <ImageOff size={20} />
+            </div>
+          )}
+          <span className="absolute bottom-1.5 left-1.5 text-[9px] font-medium uppercase tracking-wider bg-black/60 text-white px-1.5 py-0.5 rounded backdrop-blur-sm">
+            Original
+          </span>
+        </div>
+        <div className="flex-1 aspect-[4/3] bg-zinc-900 relative overflow-hidden">
+          {item.copycatImage && !imageLoadError.copycat ? (
+            <img
+              src={item.copycatImage}
+              alt="Copycat"
+              className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+              onError={() => setImageLoadError(prev => ({ ...prev, copycat: true }))}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-secondary">
+              <ImageOff size={20} />
+            </div>
+          )}
+          <span className="absolute bottom-1.5 left-1.5 text-[9px] font-medium uppercase tracking-wider bg-red-500/80 text-white px-1.5 py-0.5 rounded backdrop-blur-sm">
+            Infringing
+          </span>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="p-4 flex flex-col gap-3 flex-1">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                priority === 'high' ? 'bg-red-500' :
+                priority === 'medium' ? 'bg-orange-400' : 'bg-yellow-400'
+              }`} />
+              <h3 className="font-medium text-sm text-primary truncate">{item.brandName}</h3>
+              {item.isTrademarked && (
+                <span className="text-[9px] font-mono bg-background border border-border text-secondary px-1 py-0.5 rounded shrink-0">TM</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <PlatformIcon platform={item.platform} size={12} className="text-secondary shrink-0" />
+              <span className="text-xs text-secondary truncate">{item.platform}</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Needs input indicator */}
+          <div className="flex items-center gap-1.5 shrink-0">
             {showNeedsInput && (
-              <div className="flex items-center gap-1 px-2 py-1 rounded bg-orange-500/10 border border-orange-500/30 text-orange-500">
+              <div className="p-1 rounded bg-orange-500/10 border border-orange-500/20 text-orange-500">
                 <Bell size={12} />
-                <span className="text-[10px] font-bold">Action</span>
               </div>
             )}
-            {/* Unread messages indicator */}
             {unreadCount > 0 && (
-              <div className="flex items-center gap-1 px-2 py-1 rounded bg-blue-500/10 border border-blue-500/30 text-blue-500">
-                <MessageSquare size={12} />
+              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-500">
+                <MessageSquare size={10} />
                 <span className="text-[10px] font-bold">{unreadCount}</span>
               </div>
             )}
-            <div className="px-2 py-1 rounded border border-border bg-primary/5 text-[10px] font-mono text-secondary">
-               #ID-{item.id}
-            </div>
           </div>
         </div>
 
-        {/* Comparison Images */}
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <p className="text-[10px] text-secondary mb-2 uppercase tracking-wider font-medium">Original</p>
-            <div className="aspect-square bg-background border border-border overflow-hidden relative rounded-lg">
-              {originalImageUrl && !imageLoadError.original ? (
-                <img
-                  src={originalImageUrl}
-                  alt="Original"
-                  className="w-full h-full object-cover"
-                  onError={() => setImageLoadError(prev => ({ ...prev, original: true }))}
-                />
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center text-secondary gap-2">
-                  <ImageOff size={24} />
-                  <span className="text-[10px]">No image</span>
-                </div>
-              )}
-            </div>
+        {/* Stats row */}
+        <div className="flex items-center gap-4 text-xs">
+          <div>
+            <span className="text-secondary">Match </span>
+            <span className={`font-mono font-medium ${item.similarityScore >= 90 ? 'text-red-500' : 'text-primary'}`}>
+              {item.similarityScore}%
+            </span>
           </div>
-          <div className="flex-1">
-            <p className="text-[10px] text-red-500 mb-2 uppercase tracking-wider font-medium">Infringement</p>
-            <div className="aspect-square bg-background border border-red-500/30 overflow-hidden relative rounded-lg">
-               {item.platform === 'TikTok Shop' && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
-                      <div className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center backdrop-blur-sm">
-                          <div className="ml-0.5 w-0 h-0 border-t-4 border-t-transparent border-l-[8px] border-l-black border-b-4 border-b-transparent"></div>
-                      </div>
-                  </div>
-               )}
-              {item.copycatImage && !imageLoadError.copycat ? (
-                <img
-                  src={item.copycatImage}
-                  alt="Copycat"
-                  className="w-full h-full object-cover grayscale-[20%] contrast-125"
-                  onError={() => setImageLoadError(prev => ({ ...prev, copycat: true }))}
-                />
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center text-red-400 gap-2">
-                  <ImageOff size={24} />
-                  <span className="text-[10px]">No image</span>
-                </div>
-              )}
-            </div>
+          <div>
+            <span className="text-secondary">Visitors </span>
+            <span className="font-mono font-medium text-primary">{item.siteVisitors.toLocaleString()}</span>
+          </div>
+          <div className="ml-auto">
+            <span className={`font-mono text-xs font-medium px-1.5 py-0.5 rounded border ${
+              revenueDisplay.severity === 'high' ? 'text-red-500 bg-red-500/10 border-red-500/20' :
+              revenueDisplay.severity === 'medium' ? 'text-orange-500 bg-orange-500/10 border-orange-500/20' :
+              'text-yellow-600 bg-yellow-500/10 border-yellow-500/20'
+            }`}>
+              {revenueDisplay.text}
+            </span>
           </div>
         </div>
 
-        {/* Stats Grid - Brutalist Style */}
-        <div className="grid grid-cols-2 gap-4 py-2 border-t border-b border-border border-dashed">
-            {/* Match Score */}
-            <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-secondary uppercase tracking-wider">Match</span>
-                <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${item.similarityScore >= 90 ? 'bg-red-500' : 'bg-orange-400'}`}></div>
-                    <span className="font-mono text-xl font-medium text-primary">{item.similarityScore}%</span>
-                </div>
-            </div>
-
-             {/* Traffic */}
-             <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-secondary uppercase tracking-wider">Visitors</span>
-                <span className="font-mono text-xl font-medium text-primary">{item.siteVisitors.toLocaleString().replace(/,/g, ' ')}</span>
-            </div>
-
-            {/* Platform */}
-            <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-secondary uppercase tracking-wider">Source</span>
-                <div className="flex items-center gap-2">
-                    <PlatformIcon platform={item.platform} size={14} className="text-secondary" />
-                    <span className="text-sm font-medium text-primary truncate">{item.platform}</span>
-                </div>
-            </div>
-
-            {/* Revenue at Risk */}
-             <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-secondary uppercase tracking-wider">Revenue at Risk</span>
-                <span className={`font-mono text-sm font-medium px-2 py-0.5 w-fit rounded-lg border ${
-                  revenueDisplay.severity === 'high' ? 'text-red-500 bg-red-500/10 border-red-500/20' :
-                  revenueDisplay.severity === 'medium' ? 'text-orange-500 bg-orange-500/10 border-orange-500/20' :
-                  'text-yellow-600 bg-yellow-500/10 border-yellow-500/20'
-                }`}>
-                  {revenueDisplay.text}
-                </span>
-            </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-3 mt-auto">
+        {/* Action */}
+        <div className="flex gap-2 mt-auto pt-2 border-t border-border">
           <button
             onClick={onReport}
             disabled={item.status !== 'detected'}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium transition-all
               ${item.status === 'pending_review'
                 ? 'bg-yellow-500/10 text-yellow-600 border border-yellow-500/20 cursor-not-allowed'
                 : item.status === 'needs_member_input'
@@ -190,38 +156,38 @@ const InfringementCard: React.FC<InfringementCardProps> = ({ item, onDismiss, on
                 ? 'bg-red-500/10 text-red-500 border border-red-500/20 cursor-not-allowed'
                 : item.status === 'dismissed_by_member' || item.status === 'dismissed_by_admin'
                 ? 'bg-gray-500/10 text-gray-500 border border-gray-500/20 cursor-not-allowed'
-                : 'bg-primary text-inverse hover:opacity-90 shadow-sm'}`}
+                : 'bg-primary text-inverse hover:opacity-90'}`}
           >
-            {item.status === 'pending_review' && <><Clock size={14} /> Awaiting Review</>}
-            {item.status === 'needs_member_input' && <><Bell size={14} /> Needs Your Input</>}
-            {item.status === 'in_progress' && <><AlertCircle size={14} /> Enforcing</>}
-            {item.status === 'resolved_success' && <><ShieldCheck size={14} /> Successful</>}
-            {item.status === 'resolved_partial' && <><CheckCircle size={14} /> Partial</>}
-            {item.status === 'resolved_failed' && <><XCircle size={14} /> Failed</>}
-            {(item.status === 'dismissed_by_member' || item.status === 'dismissed_by_admin') && <><XCircle size={14} /> Dismissed</>}
-            {item.status === 'detected' && <><Flag size={14} /> Request Enforcement</>}
+            {item.status === 'pending_review' && <><Clock size={12} /> Awaiting Review</>}
+            {item.status === 'needs_member_input' && <><Bell size={12} /> Needs Input</>}
+            {item.status === 'in_progress' && <><AlertCircle size={12} /> Enforcing</>}
+            {item.status === 'resolved_success' && <><ShieldCheck size={12} /> Successful</>}
+            {item.status === 'resolved_partial' && <><CheckCircle size={12} /> Partial</>}
+            {item.status === 'resolved_failed' && <><XCircle size={12} /> Failed</>}
+            {(item.status === 'dismissed_by_member' || item.status === 'dismissed_by_admin') && <><XCircle size={12} /> Dismissed</>}
+            {item.status === 'detected' && <><Flag size={12} /> Enforce</>}
           </button>
 
           {canDismiss && (
             <div className="relative">
-              <button 
+              <button
                 onClick={(e) => { e.stopPropagation(); setIsDismissOpen(!isDismissOpen); }}
-                className="h-full px-3 border border-border rounded-lg bg-surface text-secondary hover:text-primary hover:border-secondary transition-colors"
+                className="h-full px-2.5 border border-border rounded-lg bg-background text-secondary hover:text-primary hover:border-secondary/50 transition-colors"
               >
-                <MoreVertical size={16} />
+                <MoreVertical size={14} />
               </button>
-              
+
               {isDismissOpen && (
-                <div className="absolute bottom-full right-0 mb-2 w-32 bg-background border border-border shadow-xl py-1 z-20 rounded-lg animate-in zoom-in-95">
-                  <button 
+                <div className="absolute bottom-full right-0 mb-2 w-28 bg-background border border-border shadow-xl py-1 z-20 rounded-lg animate-in zoom-in-95">
+                  <button
                     onClick={onDismiss}
-                    className="w-full text-left px-4 py-2 text-xs font-mono uppercase text-red-500 hover:bg-surface transition-colors"
+                    className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-surface transition-colors"
                   >
                     Dismiss
                   </button>
-                  <button 
+                  <button
                     onClick={(e) => { e.stopPropagation(); setIsDismissOpen(false); }}
-                    className="w-full text-left px-4 py-2 text-xs font-mono uppercase text-secondary hover:bg-surface transition-colors"
+                    className="w-full text-left px-3 py-1.5 text-xs text-secondary hover:bg-surface transition-colors"
                   >
                     Cancel
                   </button>
@@ -231,7 +197,7 @@ const InfringementCard: React.FC<InfringementCardProps> = ({ item, onDismiss, on
           )}
         </div>
       </div>
-    </BentoCard>
+    </div>
   );
 };
 

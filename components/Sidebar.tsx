@@ -56,13 +56,9 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const navItems = [
     { group: null, items: [
-      { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
-    ], hasSeparator: true },
-    { group: null, items: [
+      { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
       { id: 'search', icon: Search, label: 'Infringements', hasAlert: true },
       { id: 'takedowns', icon: ShieldOff, label: 'Takedowns' },
-    ], hasSeparator: true },
-    { group: null, items: [
       { id: 'assets', icon: FolderOpen, label: 'Assets' },
       { id: 'analytics', icon: BarChart3, label: 'Analytics' },
     ]},
@@ -178,7 +174,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </button>
             ))}
           </div>
-          {group.hasSeparator && <div className="w-full h-px bg-sidebar-border my-1"></div>}
+          {'hasSeparator' in group && group.hasSeparator && <div className="w-full h-px bg-sidebar-border my-1"></div>}
           </React.Fragment>
         ))}
       </nav>

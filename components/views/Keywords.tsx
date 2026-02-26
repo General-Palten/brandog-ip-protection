@@ -37,13 +37,6 @@ const Keywords: React.FC = () => {
 
   return (
     <div className="space-y-8 animate-in fade-in">
-      <div className="flex justify-between items-end">
-          <div>
-            <h1 className="font-serif text-3xl text-primary font-medium">Keywords</h1>
-            <p className="text-secondary mt-1 text-sm">Manage the terms used to scan for potential infringements.</p>
-          </div>
-      </div>
-
       {/* Tabs */}
       <div className="border-b border-border">
           <div className="flex gap-8 overflow-x-auto">

@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { X, AlertTriangle, AlertCircle, Info, CheckCircle, Clock, XCircle, ExternalLink } from 'lucide-react';
 import { InfringementItem } from '../types';
 import { getCountryName, getCountryFlag } from './WorldMap';
@@ -113,7 +114,8 @@ const CountryViolationsPanel: React.FC<CountryViolationsPanelProps> = ({
     const flag = getCountryFlag(countryCode);
     const displayName = countryName || getCountryName(countryCode);
 
-    return (
+    // Use portal to escape any ancestor transforms that break fixed positioning
+    return createPortal(
         <>
             {/* Backdrop */}
             <div
@@ -273,7 +275,8 @@ const CountryViolationsPanel: React.FC<CountryViolationsPanelProps> = ({
                     </button>
                 </div>
             </div>
-        </>
+        </>,
+        document.body
     );
 };
 

@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useDashboard } from '../../context/DashboardContext';
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
 import BentoCard from '../ui/BentoCard';
-import { MoreHorizontal, ChevronDown, ShieldCheck, AlertTriangle, TrendingUp, TrendingDown, Calendar, ChevronRight, Globe } from 'lucide-react';
+import { MoreHorizontal, ChevronDown, ChevronLeft, ShieldCheck, AlertTriangle, TrendingUp, TrendingDown, Calendar, ChevronRight, Globe } from 'lucide-react';
 import { PLATFORM_CONFIG } from '../../constants';
-import { InfringementItem, TakedownRequest } from '../../types';
-import { isActiveCaseStatus, isResolvedCaseStatus } from '../../lib/case-status';
+import { InfringementItem, InfringementStatus, TakedownRequest } from '../../types';
+import { isActiveCaseStatus, isResolvedCaseStatus, isDetectionStatus, isPendingStatus, isEnforcingStatus, isDismissedStatus } from '../../lib/case-status';
 import WorldMap, { getCountryName } from '../WorldMap';
 import CountryViolationsPanel from '../CountryViolationsPanel';
 import CaseDetailModal from '../CaseDetailModal';
@@ -207,6 +207,19 @@ const DashboardAnalytics: React.FC<DashboardAnalyticsProps> = ({ initialTab = 'o
   const [selectedItem, setSelectedItem] = useState<InfringementItem | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
+  // Map Filter State
+  const [mapCategoryFilter, setMapCategoryFilter] = useState<string>('all');
+  const [mapPlatformFilter, setMapPlatformFilter] = useState<string>('all');
+  const [mapSortOrder, setMapSortOrder] = useState<'count' | 'revenue'>('count');
+
+  // Calendar State
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+  });
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date().getMonth());
+  const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
+
   // --- Aggregate Data Based on Range ---
 
   // Filters from canonical lifecycle statuses
@@ -301,14 +314,97 @@ const DashboardAnalytics: React.FC<DashboardAnalyticsProps> = ({ initialTab = 'o
 
   }, [infringementsInRange]);
 
-  // Aggregate Map Data (Detected in range)
+  // Map category filter definitions
+  const MAP_CATEGORY_FILTERS: { key: string; label: string; fn: (i: InfringementItem) => boolean }[] = useMemo(() => [
+    { key: 'all', label: 'All', fn: () => true },
+    { key: 'marketplaces', label: 'Marketplaces', fn: (i) => PLATFORM_CONFIG[i.platform as keyof typeof PLATFORM_CONFIG]?.category === 'marketplace' },
+    { key: 'social', label: 'Social', fn: (i) => PLATFORM_CONFIG[i.platform as keyof typeof PLATFORM_CONFIG]?.category === 'social' },
+    { key: 'flagged', label: 'Flagged', fn: (i) => isDetectionStatus(i.status) },
+    { key: 'pending', label: 'Pending', fn: (i) => isPendingStatus(i.status) },
+    { key: 'enforcing', label: 'Enforcing', fn: (i) => isEnforcingStatus(i.status) },
+    { key: 'resolved', label: 'Resolved', fn: (i) => isResolvedCaseStatus(i.status) },
+    { key: 'dismissed', label: 'Dismissed', fn: (i) => isDismissedStatus(i.status) },
+  ], []);
+
+  // Filtered infringements for map
+  const filteredMapInfringements = useMemo(() => {
+    let items = infringementsInRange;
+    const catFilter = MAP_CATEGORY_FILTERS.find(f => f.key === mapCategoryFilter);
+    if (catFilter) items = items.filter(catFilter.fn);
+    if (mapPlatformFilter !== 'all') items = items.filter(i => i.platform === mapPlatformFilter);
+    return items;
+  }, [infringementsInRange, mapCategoryFilter, mapPlatformFilter, MAP_CATEGORY_FILTERS]);
+
+  // Aggregate Map Data (from filtered infringements)
   const violationMapData = useMemo(() => {
       const byCountry: Record<string, number> = {};
-      infringementsInRange.forEach(item => {
+      filteredMapInfringements.forEach(item => {
           byCountry[item.country] = (byCountry[item.country] || 0) + 1;
       });
 
       return Object.entries(byCountry).map(([country, value]) => ({ country, value }));
+  }, [filteredMapInfringements]);
+
+  // Status display helpers (shared by Top Violators + Tracker)
+  const getStatusLabel = useCallback((status: string) => {
+    if (isResolvedCaseStatus(status as InfringementStatus)) return 'Resolved';
+    if (isEnforcingStatus(status as InfringementStatus)) return 'Enforcing';
+    if (isPendingStatus(status as InfringementStatus)) return 'Pending';
+    if (isDismissedStatus(status as InfringementStatus)) return 'Dismissed';
+    if (isDetectionStatus(status as InfringementStatus)) return 'Detected';
+    if (status === 'in_progress') return 'In Progress';
+    return 'Active';
+  }, []);
+
+  const getStatusColor = useCallback((status: string) => {
+    if (isResolvedCaseStatus(status as InfringementStatus)) return 'text-green-500 bg-green-500/10';
+    if (isEnforcingStatus(status as InfringementStatus)) return 'text-blue-500 bg-blue-500/10';
+    if (isPendingStatus(status as InfringementStatus)) return 'text-amber-500 bg-amber-500/10';
+    if (isDismissedStatus(status as InfringementStatus)) return 'text-secondary bg-surface';
+    if (status === 'in_progress') return 'text-blue-500 bg-blue-500/10';
+    return 'text-red-500 bg-red-500/10';
+  }, []);
+
+  // Top violators (sellers) from filtered map infringements
+  const topViolators = useMemo(() => {
+    const sellerMap: Record<string, { count: number; revenue: number; platforms: Set<string>; country: string; statuses: Record<string, number> }> = {};
+    filteredMapInfringements.forEach(item => {
+      const key = item.sellerName || 'Unknown Seller';
+      if (!sellerMap[key]) sellerMap[key] = { count: 0, revenue: 0, platforms: new Set(), country: '', statuses: {} };
+      sellerMap[key].count++;
+      sellerMap[key].revenue += item.revenueLost;
+      sellerMap[key].platforms.add(item.platform);
+      if (!sellerMap[key].country) sellerMap[key].country = item.country;
+      sellerMap[key].statuses[item.status] = (sellerMap[key].statuses[item.status] || 0) + 1;
+    });
+
+    return Object.entries(sellerMap)
+      .map(([name, data]) => {
+        const topStatus = Object.entries(data.statuses).sort((a, b) => b[1] - a[1])[0]?.[0] || 'detected';
+        return {
+          name,
+          count: data.count,
+          revenue: data.revenue,
+          platforms: Array.from(data.platforms),
+          country: data.country,
+          statusLabel: getStatusLabel(topStatus),
+          statusColor: getStatusColor(topStatus),
+        };
+      })
+      .sort((a, b) => mapSortOrder === 'revenue' ? b.revenue - a.revenue : b.count - a.count)
+      .slice(0, 5);
+  }, [filteredMapInfringements, mapSortOrder, getStatusLabel, getStatusColor]);
+
+  // Violations for selected calendar date
+  const selectedDateViolations = useMemo(() => {
+    if (!selectedCalendarDate) return [];
+    return infringements.filter(i => i.detectedAt === selectedCalendarDate);
+  }, [infringements, selectedCalendarDate]);
+
+  // Available platforms for map filter dropdown
+  const availablePlatforms = useMemo(() => {
+    const platforms = new Set(infringementsInRange.map(i => i.platform));
+    return Array.from(platforms).sort();
   }, [infringementsInRange]);
 
   const topPlatform = useMemo(() => platformRiskData[0] || null, [platformRiskData]);
@@ -629,47 +725,77 @@ const DashboardAnalytics: React.FC<DashboardAnalyticsProps> = ({ initialTab = 'o
   // --- Calendar Logic ---
   const currentMonthCalendar = useMemo(() => {
       const now = new Date();
-      const currentMonth = now.getMonth();
-      const currentYear = now.getFullYear();
-      
-      const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-      const startDayOfWeek = new Date(currentYear, currentMonth, 1).getDay(); // 0 = Sun, 1 = Mon
-      
-      const calendarDays = [];
-      
+      const todayDate = now.getDate();
+      const todayMonth = now.getMonth();
+      const todayYear = now.getFullYear();
+
+      const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+      const startDayOfWeek = new Date(calendarYear, calendarMonth, 1).getDay(); // 0 = Sun, 1 = Mon
+
+      const calendarDays: { day: number; month: string; activity: number; isToday?: boolean; dateStr?: string }[] = [];
+
       // Previous month filler
       const prevMonthDays = startDayOfWeek === 0 ? 6 : startDayOfWeek - 1;
-      const prevMonthLastDay = new Date(currentYear, currentMonth, 0).getDate();
+      const prevMonthLastDay = new Date(calendarYear, calendarMonth, 0).getDate();
       for(let i = prevMonthDays - 1; i >= 0; i--) {
           calendarDays.push({ day: prevMonthLastDay - i, month: 'prev', activity: 0 });
       }
-      
+
       // Current month
       for(let i = 1; i <= daysInMonth; i++) {
-          const dateStr = new Date(currentYear, currentMonth, i).toISOString().split('T')[0];
+          const dateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
           const count = infringements.filter(item => item.detectedAt === dateStr).length;
-          
+
           let activity = 0;
           if (count > 0) activity = 1;
           if (count > 2) activity = 2;
           if (count > 5) activity = 3;
 
-          calendarDays.push({ 
-              day: i, 
-              month: 'curr', 
-              activity, 
-              selected: i === now.getDate() 
+          calendarDays.push({
+              day: i,
+              month: 'curr',
+              activity,
+              isToday: i === todayDate && calendarMonth === todayMonth && calendarYear === todayYear,
+              dateStr,
           });
       }
-      
+
       // Next month filler
       const remainingSlots = 42 - calendarDays.length; // 6 rows
       for(let i = 1; i <= remainingSlots; i++) {
           calendarDays.push({ day: i, month: 'next', activity: 0 });
       }
-      
+
       return calendarDays;
-  }, [infringements]);
+  }, [infringements, calendarMonth, calendarYear]);
+
+  // Calendar navigation helpers
+  const goToPrevMonth = useCallback(() => {
+    setCalendarMonth(prev => {
+      if (prev === 0) {
+        setCalendarYear(y => y - 1);
+        return 11;
+      }
+      return prev - 1;
+    });
+  }, []);
+
+  const goToNextMonth = useCallback(() => {
+    setCalendarMonth(prev => {
+      if (prev === 11) {
+        setCalendarYear(y => y + 1);
+        return 0;
+      }
+      return prev + 1;
+    });
+  }, []);
+
+  const goToToday = useCallback(() => {
+    const now = new Date();
+    setCalendarMonth(now.getMonth());
+    setCalendarYear(now.getFullYear());
+    setSelectedCalendarDate(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`);
+  }, []);
 
 
   const getComparisonText = (rangeKey: string) => {
@@ -908,32 +1034,110 @@ const DashboardAnalytics: React.FC<DashboardAnalyticsProps> = ({ initialTab = 'o
              </div>
          </BentoCard>
 
-         {/* Card 5: Global Violations Map (Left Column, 2-Row Span) */}
-         <BentoCard 
-            title="Global Violations" 
-            className="md:col-span-2 row-span-2"
+         {/* Card 5: Global Violations Map */}
+         <BentoCard
+            title="Global Violations"
+            className="md:col-span-2"
             action={
                <div className="flex items-center gap-2 text-xs text-secondary">
                   <Globe size={12} />
-                  <span>Real-time Activity</span>
+                  <span>{filteredMapInfringements.length} violations</span>
                </div>
             }
          >
-            <div className="w-full h-full min-h-[250px] mt-2">
+            {/* Filter Strip — segmented control + dropdowns */}
+            <div className="flex flex-wrap items-center gap-2 mt-2 mb-2">
+              <div className="inline-flex rounded-lg border border-border overflow-hidden">
+                {MAP_CATEGORY_FILTERS.map(f => (
+                  <button
+                    key={f.key}
+                    onClick={() => setMapCategoryFilter(f.key)}
+                    className={`px-2.5 py-1 text-[11px] font-medium transition-colors border-r border-border last:border-r-0 ${
+                      mapCategoryFilter === f.key
+                        ? 'bg-primary text-inverse'
+                        : 'bg-background text-secondary hover:text-primary hover:bg-surface'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <select
+                value={mapPlatformFilter}
+                onChange={e => setMapPlatformFilter(e.target.value)}
+                className="text-[11px] bg-background border border-border rounded-lg px-2 py-1 text-secondary focus:outline-none focus:border-primary cursor-pointer hover:bg-surface transition-colors"
+              >
+                <option value="all">All Platforms</option>
+                {availablePlatforms.map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              <select
+                value={mapSortOrder}
+                onChange={e => setMapSortOrder(e.target.value as 'count' | 'revenue')}
+                className="text-[11px] bg-background border border-border rounded-lg px-2 py-1 text-secondary focus:outline-none focus:border-primary cursor-pointer hover:bg-surface transition-colors"
+              >
+                <option value="count">Sort: Count</option>
+                <option value="revenue">Sort: Revenue</option>
+              </select>
+            </div>
+
+            <div className="w-full h-[180px] relative">
                 <WorldMap
                   data={violationMapData}
-                  infringements={infringementsInRange}
+                  infringements={filteredMapInfringements}
                   onCountrySelect={handleCountrySelect}
                   selectedCountry={selectedCountry || undefined}
                 />
             </div>
+
+            {/* Top Violators Table */}
+            {topViolators.length > 0 && (
+              <div className="border-t border-border pt-2 mt-1">
+                {/* Column headers */}
+                <div className="flex items-center gap-2 text-[10px] text-secondary uppercase tracking-wider pb-1 mb-1 border-b border-border/50">
+                  <span className="w-4" />
+                  <span className="flex-1">Seller</span>
+                  <span className="w-12">Country</span>
+                  <span className="w-20">Platform</span>
+                  <span className="w-16">Status</span>
+                  <span className="w-10 text-right">Cases</span>
+                  <span className="w-16 text-right">Risk</span>
+                </div>
+                <div className="space-y-0.5">
+                  {topViolators.map((v, idx) => (
+                    <div key={v.name} className="flex items-center gap-2 text-xs group py-1 hover:bg-surface/50 rounded transition-colors">
+                      <span className="text-[10px] font-mono text-secondary w-4 text-right">{idx + 1}.</span>
+                      <span className="flex-1 min-w-0 text-primary truncate text-[11px] font-medium">{v.name}</span>
+                      <span className="w-12 text-[10px] text-secondary font-mono">{v.country || '—'}</span>
+                      <span className="w-20 text-[10px] text-secondary truncate">{v.platforms.slice(0, 2).join(', ')}</span>
+                      <span className={`w-16 text-[10px] font-medium px-1.5 py-0.5 rounded-full text-center ${v.statusColor}`}>{v.statusLabel}</span>
+                      <span className="font-mono text-primary text-[11px] w-10 text-right">{v.count}</span>
+                      <div className="w-16 text-right">
+                        <span className="block text-[11px] font-mono text-primary">${v.revenue.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
          </BentoCard>
 
          {/* Card 6: Tracker (Right Column, Stacked) */}
          <BentoCard title="Tracker" className="md:col-span-1 p-0 overflow-hidden" action={
-            <div className="flex items-center gap-1 text-xs text-secondary cursor-pointer hover:text-primary transition-colors border border-border px-2 py-1">
-                <span>{new Date().toLocaleDateString(undefined, {month:'long'})}</span>
-                <ChevronDown size={12} />
+            <div className="flex items-center gap-1">
+                <button onClick={goToPrevMonth} className="p-1 text-secondary hover:text-primary hover:bg-surface rounded transition-colors">
+                    <ChevronLeft size={14} />
+                </button>
+                <span className="text-xs text-secondary font-mono min-w-[100px] text-center">
+                    {new Date(calendarYear, calendarMonth).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+                </span>
+                <button onClick={goToNextMonth} className="p-1 text-secondary hover:text-primary hover:bg-surface rounded transition-colors">
+                    <ChevronRight size={14} />
+                </button>
+                <button onClick={goToToday} className="text-[10px] text-secondary hover:text-primary border border-border px-1.5 py-0.5 rounded transition-colors ml-1">
+                    Today
+                </button>
             </div>
          }>
             <div className="mt-2 border-t border-border">
@@ -945,36 +1149,83 @@ const DashboardAnalytics: React.FC<DashboardAnalyticsProps> = ({ initialTab = 'o
                         </div>
                     ))}
                 </div>
-                
+
                 {/* Calendar Grid */}
                 <div className="grid grid-cols-7 bg-border gap-px border-b border-border">
                     {currentMonthCalendar.map((item, i) => {
                         const isWeekend = i % 7 === 5 || i % 7 === 6;
-                        return (
-                            <div 
-                                key={i} 
+                        const isClickedDate = item.month === 'curr' && item.dateStr === selectedCalendarDate;
+                        return item.month === 'curr' ? (
+                            <button
+                                key={i}
+                                onClick={() => setSelectedCalendarDate(item.dateStr === selectedCalendarDate ? null : item.dateStr!)}
                                 className={`
-                                    relative h-8 w-full flex flex-col justify-between p-1 transition-colors
-                                    ${item.selected 
-                                        ? 'bg-surface' 
-                                        : isWeekend 
-                                            ? 'bg-striped' 
-                                            : item.month === 'curr' ? 'bg-background hover:bg-surface' : 'bg-background'
+                                    relative h-8 w-full flex flex-col justify-between p-1 transition-colors cursor-pointer
+                                    ${isClickedDate
+                                        ? 'bg-primary/10 ring-1 ring-inset ring-primary/40'
+                                        : item.isToday
+                                            ? 'bg-surface'
+                                            : isWeekend
+                                                ? 'bg-striped hover:bg-surface'
+                                                : 'bg-background hover:bg-surface'
                                     }
                                 `}
                             >
-                                <span className={`font-mono text-[9px] ${item.selected ? 'text-primary font-bold' : 'text-secondary'} ${item.month !== 'curr' ? 'opacity-30' : ''}`}>
+                                <span className={`font-mono text-[9px] ${isClickedDate ? 'text-primary font-bold' : item.isToday ? 'text-primary font-bold' : 'text-secondary'}`}>
                                     {item.day}
                                 </span>
-                                
-                                {item.activity > 0 && item.month === 'curr' && (
+                                {item.activity > 0 && (
                                     <div className="flex gap-0.5 justify-center mt-1">
-                                        <div className={`h-1 w-1 rounded-full ${item.selected ? 'bg-primary' : 'bg-secondary/50'}`}></div>
+                                        <div className={`h-1 w-1 rounded-full ${isClickedDate || item.isToday ? 'bg-primary' : 'bg-secondary/50'}`}></div>
                                     </div>
                                 )}
+                            </button>
+                        ) : (
+                            <div
+                                key={i}
+                                className="relative h-8 w-full flex flex-col justify-between p-1 bg-background"
+                            >
+                                <span className="font-mono text-[9px] text-secondary opacity-30">{item.day}</span>
                             </div>
                         );
                     })}
+                </div>
+
+                {/* Selected Date Violations List */}
+                <div className="px-3 py-2 min-h-[48px]">
+                  {!selectedCalendarDate ? (
+                    <p className="text-[10px] text-secondary text-center py-1">Click a date to view activity</p>
+                  ) : selectedDateViolations.length === 0 ? (
+                    <p className="text-[10px] text-secondary text-center py-1">No violations on {selectedCalendarDate}</p>
+                  ) : (
+                    <div className="max-h-[160px] overflow-y-auto">
+                      <p className="text-[10px] uppercase tracking-wider text-secondary font-medium mb-1.5">{selectedDateViolations.length} violation{selectedDateViolations.length !== 1 ? 's' : ''} on {selectedCalendarDate}</p>
+                      {/* Column headers */}
+                      <div className="flex items-center gap-1.5 text-[9px] text-secondary uppercase tracking-wider pb-1 mb-0.5 border-b border-border/50">
+                        <span className="flex-1">Seller</span>
+                        <span className="w-10">Country</span>
+                        <span className="w-14">Status</span>
+                        <span className="w-12 text-right">Risk</span>
+                      </div>
+                      <div className="space-y-0">
+                        {selectedDateViolations.map(v => (
+                          <button
+                            key={v.id}
+                            onClick={() => openDetail(v)}
+                            className="w-full flex items-center gap-1.5 text-left text-xs py-1 px-0.5 rounded hover:bg-surface transition-colors group"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <span className="text-primary group-hover:text-primary truncate block text-[11px] font-medium">{v.sellerName || 'Unknown'}</span>
+                              <span className="text-[9px] text-secondary">{v.platform}</span>
+                            </div>
+                            <span className="w-10 text-[10px] text-secondary font-mono">{v.country || '—'}</span>
+                            <span className={`w-14 text-[9px] font-medium px-1 py-0.5 rounded-full text-center ${getStatusColor(v.status)}`}>{getStatusLabel(v.status)}</span>
+                            <span className="w-12 text-right text-[10px] text-primary font-mono">${v.revenueLost.toLocaleString()}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
             </div>
          </BentoCard>
