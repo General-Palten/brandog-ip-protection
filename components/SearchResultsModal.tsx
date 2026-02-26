@@ -5,7 +5,7 @@ import { searchByImage } from '../lib/vision-api';
 import { isVisionConfigured, getVisionConfig } from '../lib/api-config';
 import {
   X, Loader2, Search, ExternalLink, Plus, AlertTriangle,
-  Image as ImageIcon, Globe, Settings, CheckCircle, History, Clock, Trash2
+  Image as ImageIcon, Globe, Settings, CheckCircle, History, Clock, Trash2, ChevronDown, ChevronUp
 } from 'lucide-react';
 import Button from './ui/Button';
 
@@ -91,6 +91,8 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
   const [addedResults, setAddedResults] = useState<Set<string>>(new Set());
   const [globalMatchingImages, setGlobalMatchingImages] = useState<string[]>([]);
   const [isAddingResults, setIsAddingResults] = useState(false);
+  const [showFullMatches, setShowFullMatches] = useState(false);
+  const [showVisuallySimilar, setShowVisuallySimilar] = useState(false);
 
   // Search history state
   const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>([]);
@@ -110,6 +112,8 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
       setAddedResults(new Set());
       setSelectedHistoryEntry(null);
       setShowHistory(false);
+      setShowFullMatches(false);
+      setShowVisuallySimilar(false);
 
       getAssetURL(asset.id)
         .then(url => setAssetPreviewUrl(url))
@@ -139,6 +143,8 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
     setError(null);
     setSearchResults(null);
     setSelectedHistoryEntry(null);
+    setShowFullMatches(false);
+    setShowVisuallySimilar(false);
 
     try {
       const base64 = await getAssetBase64(asset.id);
@@ -187,10 +193,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
       ];
       setGlobalMatchingImages(allMatchingImages);
 
-      const totalMatches = results.pagesWithMatchingImages.length +
-        results.fullMatchingImages.length +
-        results.partialMatchingImages.length +
-        results.visuallySimilarImages.length;
+      const totalMatches = results.pagesWithMatchingImages.length;
 
       if (totalMatches === 0) {
         setError('No matching images found on the web. Your image appears to be unique!');
@@ -232,6 +235,8 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
     setGlobalMatchingImages(entry.globalMatchingImages);
     setError(null);
     setShowHistory(false);
+    setShowFullMatches(false);
+    setShowVisuallySimilar(false);
   };
 
   // Delete a history entry
@@ -295,10 +300,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
   if (!isOpen) return null;
 
   const totalResults = searchResults
-    ? searchResults.pagesWithMatchingImages.length +
-      searchResults.fullMatchingImages.length +
-      searchResults.partialMatchingImages.length +
-      searchResults.visuallySimilarImages.length
+    ? searchResults.pagesWithMatchingImages.length
     : 0;
 
   const remainingPageMatches = searchResults
@@ -727,58 +729,88 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
               {/* Full Matching Images (standalone) */}
               {searchResults.fullMatchingImages.length > 0 && (
                 <div>
-                  <h4 className="text-xs font-medium text-secondary uppercase tracking-wider mb-3">
-                    Full Matching Images ({searchResults.fullMatchingImages.length})
-                  </h4>
-                  <div className="grid grid-cols-4 gap-3">
-                    {searchResults.fullMatchingImages.slice(0, 8).map((img, i) => (
-                      <a
-                        key={i}
-                        href={img.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="aspect-square bg-zinc-900 rounded-lg overflow-hidden hover:ring-2 hover:ring-primary transition-all group"
-                      >
-                        <img
-                          src={img.url}
-                          alt={`Match ${i + 1}`}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect fill="%23333" width="100" height="100"/><text fill="%23666" x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12">No preview</text></svg>';
-                          }}
-                        />
-                      </a>
-                    ))}
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-medium text-secondary uppercase tracking-wider">
+                      Full Matching Images ({searchResults.fullMatchingImages.length})
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setShowFullMatches(prev => !prev)}
+                      className="text-xs text-secondary hover:text-primary flex items-center gap-1"
+                    >
+                      {showFullMatches ? (
+                        <>Hide <ChevronUp size={14} /></>
+                      ) : (
+                        <>Show <ChevronDown size={14} /></>
+                      )}
+                    </button>
                   </div>
+                  {showFullMatches && (
+                    <div className="grid grid-cols-4 gap-3">
+                      {searchResults.fullMatchingImages.slice(0, 8).map((img, i) => (
+                        <a
+                          key={i}
+                          href={img.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="aspect-square bg-zinc-900 rounded-lg overflow-hidden hover:ring-2 hover:ring-primary transition-all group"
+                        >
+                          <img
+                            src={img.url}
+                            alt={`Match ${i + 1}`}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect fill="%23333" width="100" height="100"/><text fill="%23666" x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12">No preview</text></svg>';
+                            }}
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Visually Similar Images */}
               {searchResults.visuallySimilarImages.length > 0 && (
                 <div>
-                  <h4 className="text-xs font-medium text-secondary uppercase tracking-wider mb-3">
-                    Visually Similar Images ({searchResults.visuallySimilarImages.length})
-                  </h4>
-                  <div className="grid grid-cols-4 gap-3">
-                    {searchResults.visuallySimilarImages.slice(0, 8).map((img, i) => (
-                      <a
-                        key={i}
-                        href={img.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="aspect-square bg-zinc-900 rounded-lg overflow-hidden hover:ring-2 hover:ring-amber-500 transition-all group"
-                      >
-                        <img
-                          src={img.url}
-                          alt={`Similar ${i + 1}`}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect fill="%23333" width="100" height="100"/><text fill="%23666" x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12">No preview</text></svg>';
-                          }}
-                        />
-                      </a>
-                    ))}
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-medium text-secondary uppercase tracking-wider">
+                      Visually Similar Images ({searchResults.visuallySimilarImages.length})
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setShowVisuallySimilar(prev => !prev)}
+                      className="text-xs text-secondary hover:text-primary flex items-center gap-1"
+                    >
+                      {showVisuallySimilar ? (
+                        <>Hide <ChevronUp size={14} /></>
+                      ) : (
+                        <>Show <ChevronDown size={14} /></>
+                      )}
+                    </button>
                   </div>
+                  {showVisuallySimilar && (
+                    <div className="grid grid-cols-4 gap-3">
+                      {searchResults.visuallySimilarImages.slice(0, 8).map((img, i) => (
+                        <a
+                          key={i}
+                          href={img.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="aspect-square bg-zinc-900 rounded-lg overflow-hidden hover:ring-2 hover:ring-amber-500 transition-all group"
+                        >
+                          <img
+                            src={img.url}
+                            alt={`Similar ${i + 1}`}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect fill="%23333" width="100" height="100"/><text fill="%23666" x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12">No preview</text></svg>';
+                            }}
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
