@@ -150,9 +150,9 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
       const base64 = await getAssetBase64(asset.id);
       let providerImageUrl = assetPreviewUrl || undefined;
 
-      if (provider === 'serpapi_lens') {
+      if (provider === 'serpapi_lens' || provider === 'openwebninja') {
         if (asset.id.startsWith('local_')) {
-          setError('Save this asset first so it is uploaded to storage before running Google Lens.');
+          setError('Save this asset first so it is uploaded to storage before running a remote image search.');
           setIsSearching(false);
           return;
         }
@@ -160,7 +160,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
         const response = await fetch(`/api/assets/${asset.id}/provider-image-url`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider: 'serpapi_lens' }),
+          body: JSON.stringify({ provider }),
         });
 
         if (!response.ok) {
@@ -173,7 +173,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({
         const payload = await response.json();
         providerImageUrl = payload.providerImageUrl;
         if (!providerImageUrl) {
-          setError('Could not create an accessible URL for Google Lens. Try again in a moment.');
+          setError('Could not create an accessible image URL. Try again in a moment.');
           setIsSearching(false);
           return;
         }

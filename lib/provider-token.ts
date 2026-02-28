@@ -23,7 +23,7 @@ const getSecret = (): string => {
 interface ProviderTokenPayload {
   assetId: string;
   brandId: string;
-  provider: 'serpapi_lens';
+  provider: 'serpapi_lens' | 'openwebninja';
   exp: number; // seconds since epoch
   nonce: string;
 }

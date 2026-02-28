@@ -8,8 +8,15 @@ import {
   Smartphone, LogOut, Camera, Loader2, CheckCircle,
   Crown, BarChart3, History, Download, Filter, Monitor, Lock,
   Users, ChevronDown, ChevronUp, Search, Calendar, AlertTriangle,
-  FileText, Type, Zap, X, Phone, Mail
+  FileText, Type, Zap, X, Phone, Mail, Plug
 } from 'lucide-react';
+import {
+  getVisionConfig,
+  saveVisionProvider,
+  isServerManagedSerpApiEnabled,
+  isServerManagedRapidApiEnabled,
+  type ImageSearchProvider,
+} from '../../lib/api-config';
 import {
   JOB_TITLES, BRAND_ROLES, DASHBOARD_VIEWS, DATE_FORMATS, TIMEZONES,
   PLAN_TIERS, LOG_ACTION_TYPES, MOCK_AUDIT_LOGS
@@ -146,6 +153,17 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
   const [requireApprovalForTakedowns, setRequireApprovalForTakedowns] = useState(false);
   const [auditLogAccess, setAuditLogAccess] = useState(true);
   const [accountLockdown, setAccountLockdown] = useState(false);
+
+  // Integrations state
+  const [activeProvider, setActiveProvider] = useState<ImageSearchProvider>(() => getVisionConfig().provider);
+  const serpApiServerManaged = isServerManagedSerpApiEnabled();
+  const rapidApiServerManaged = isServerManagedRapidApiEnabled();
+
+  const handleProviderChange = (provider: ImageSearchProvider) => {
+    setActiveProvider(provider);
+    saveVisionProvider(provider);
+    addNotification('success', `Switched search provider to ${provider === 'openwebninja' ? 'OpenWebNinja' : provider === 'serpapi_lens' ? 'SerpApi Google Lens' : 'Google Vision'}`);
+  };
 
   // Plan state
   const [currentPlan] = useState<PlanTier>('pro');
@@ -376,6 +394,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },
+    { id: 'integrations', label: 'Integrations', icon: Plug },
     { id: 'plan', label: 'Plan', icon: Crown },
     { id: 'billing', label: 'Billing', icon: CreditCard },
     { id: 'logs', label: 'Logs', icon: History },
@@ -940,7 +959,145 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                 </div>
             )}
 
-            {/* PLAN SECTION (was Integrations) */}
+            {/* INTEGRATIONS SECTION */}
+            {activeSection === 'integrations' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+                    <BentoCard title="Image Search Provider">
+                        <div className="mt-4 space-y-4">
+                            <p className="text-xs text-secondary">
+                                Select the reverse image search provider used for automated scans and manual searches.
+                            </p>
+                            <div className="space-y-3">
+                                {/* OpenWebNinja */}
+                                <button
+                                    onClick={() => handleProviderChange('openwebninja')}
+                                    disabled={!rapidApiServerManaged}
+                                    className={`w-full text-left p-4 border rounded-lg transition-colors ${
+                                        activeProvider === 'openwebninja'
+                                            ? 'border-primary bg-primary/5'
+                                            : 'border-border hover:border-primary/30'
+                                    } ${!rapidApiServerManaged ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm font-medium text-primary">OpenWebNinja</p>
+                                            <p className="text-xs text-secondary mt-0.5">Reverse Image Search via RapidAPI &mdash; ~$0.005/scan</p>
+                                        </div>
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                                            activeProvider === 'openwebninja' ? 'border-primary' : 'border-border'
+                                        }`}>
+                                            {activeProvider === 'openwebninja' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                                        </div>
+                                    </div>
+                                    {!rapidApiServerManaged && (
+                                        <p className="text-[10px] text-amber-500 mt-2">
+                                            Set RAPIDAPI_KEY and NEXT_PUBLIC_RAPIDAPI_CONFIGURED=true in your environment to enable.
+                                        </p>
+                                    )}
+                                </button>
+
+                                {/* SerpApi Google Lens */}
+                                <button
+                                    onClick={() => handleProviderChange('serpapi_lens')}
+                                    disabled={!serpApiServerManaged}
+                                    className={`w-full text-left p-4 border rounded-lg transition-colors ${
+                                        activeProvider === 'serpapi_lens'
+                                            ? 'border-primary bg-primary/5'
+                                            : 'border-border hover:border-primary/30'
+                                    } ${!serpApiServerManaged ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm font-medium text-primary">SerpApi Google Lens</p>
+                                            <p className="text-xs text-secondary mt-0.5">Legacy provider &mdash; ~$0.03/scan (3 calls)</p>
+                                        </div>
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                                            activeProvider === 'serpapi_lens' ? 'border-primary' : 'border-border'
+                                        }`}>
+                                            {activeProvider === 'serpapi_lens' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                                        </div>
+                                    </div>
+                                    {!serpApiServerManaged && (
+                                        <p className="text-[10px] text-amber-500 mt-2">
+                                            Set SERPAPI_API_KEY and NEXT_PUBLIC_SERPAPI_SERVER_KEY=true in your environment to enable.
+                                        </p>
+                                    )}
+                                </button>
+
+                                {/* Google Vision */}
+                                <button
+                                    onClick={() => handleProviderChange('google_vision')}
+                                    className={`w-full text-left p-4 border rounded-lg transition-colors ${
+                                        activeProvider === 'google_vision'
+                                            ? 'border-primary bg-primary/5'
+                                            : 'border-border hover:border-primary/30'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm font-medium text-primary">Google Vision API</p>
+                                            <p className="text-xs text-secondary mt-0.5">Client-side API key required &mdash; ~$0.0015/scan</p>
+                                        </div>
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                                            activeProvider === 'google_vision' ? 'border-primary' : 'border-border'
+                                        }`}>
+                                            {activeProvider === 'google_vision' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    </BentoCard>
+
+                    <BentoCard title="OpenWebNinja Services">
+                        <div className="mt-4 space-y-1">
+                            <p className="text-xs text-secondary mb-4">
+                                Enrichment services run automatically during scans when enabled. Toggle them per-brand in the database scan_settings table.
+                            </p>
+                            {[
+                                { label: 'Reverse Image Search', desc: 'Core image detection', col: 'enable_reverse_image_search', cost: '$0.0025' },
+                                { label: 'Product Search', desc: 'Enrich results with product data', col: 'enable_product_search', cost: '$0.0025' },
+                                { label: 'Amazon Data', desc: 'ASIN details and seller info', col: 'enable_amazon_data', cost: '$0.0025' },
+                                { label: 'Website Contacts', desc: 'Scrape seller contact info', col: 'enable_website_contacts', cost: '$0.0025' },
+                                { label: 'Social Links', desc: 'Find associated social profiles', col: 'enable_social_links', cost: '$0.0025' },
+                                { label: 'Web Unblocker', desc: 'Fetch protected pages for status checks', col: 'enable_web_unblocker', cost: '$0.0005' },
+                            ].map((svc) => (
+                                <div key={svc.col} className="flex items-center justify-between py-3 border-b border-border last:border-0">
+                                    <div>
+                                        <p className="text-sm font-medium text-primary">{svc.label}</p>
+                                        <p className="text-xs text-secondary">{svc.desc} &mdash; {svc.cost}/call</p>
+                                    </div>
+                                    <span className="text-[10px] text-secondary bg-surface px-2 py-1 border border-border rounded">
+                                        DB toggle: {svc.col}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </BentoCard>
+
+                    <BentoCard title="Environment Status">
+                        <div className="mt-4 space-y-3">
+                            {[
+                                { label: 'RAPIDAPI_KEY', configured: rapidApiServerManaged },
+                                { label: 'SERPAPI_API_KEY', configured: serpApiServerManaged },
+                            ].map((env) => (
+                                <div key={env.label} className="flex items-center justify-between py-2">
+                                    <span className="text-sm font-mono text-primary">{env.label}</span>
+                                    <span className={`text-xs px-2 py-0.5 rounded ${
+                                        env.configured
+                                            ? 'bg-green-500/10 text-green-500 border border-green-500/20'
+                                            : 'bg-red-500/10 text-red-500 border border-red-500/20'
+                                    }`}>
+                                        {env.configured ? 'Configured' : 'Not set'}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </BentoCard>
+                </div>
+            )}
+
+            {/* PLAN SECTION */}
             {activeSection === 'plan' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
                     <BentoCard title="Current Plan">

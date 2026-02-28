@@ -48,9 +48,9 @@ export async function POST(
   }
 
   const provider = body.provider?.trim();
-  if (provider !== 'serpapi_lens') {
+  if (provider !== 'serpapi_lens' && provider !== 'openwebninja') {
     return NextResponse.json(
-      { error: 'Unsupported provider. Only serpapi_lens is allowed here.' },
+      { error: 'Unsupported provider. Allowed: serpapi_lens, openwebninja.' },
       { status: 400 }
     );
   }
@@ -93,11 +93,12 @@ export async function POST(
     return NextResponse.json({ error: 'Not authorized for this asset' }, { status: 403 });
   }
 
+  const tokenProvider = provider as 'serpapi_lens' | 'openwebninja';
   const token = createProviderToken(
     {
       assetId,
       brandId: asset.brand_id,
-      provider: 'serpapi_lens',
+      provider: tokenProvider,
     },
     TOKEN_TTL_SECONDS
   );
@@ -112,7 +113,7 @@ export async function POST(
 
     if (signedError || !signed?.signedUrl) {
       return NextResponse.json(
-        { error: 'Failed to create a remotely accessible asset URL for SerpApi.' },
+        { error: 'Failed to create a remotely accessible asset URL for the image search provider.' },
         { status: 500 }
       );
     }
@@ -135,7 +136,7 @@ export async function POST(
         token_hash: hashProviderToken(token),
         asset_id: assetId,
         brand_id: asset.brand_id,
-        provider: 'serpapi_lens',
+        provider: tokenProvider,
         expires_at: expiresAt,
         max_fetches: 3,
         fetch_count: 0,

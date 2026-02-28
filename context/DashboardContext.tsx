@@ -346,7 +346,10 @@ const GOOGLE_VISION_PROVIDER = 'google_vision';
 const GOOGLE_WEB_DETECTION_METHOD = 'web_detection';
 const SERPAPI_LENS_PROVIDER = 'serpapi_google_lens';
 const SERPAPI_LENS_METHOD = 'google_lens';
+const OPENWEBNINJA_PROVIDER = 'openwebninja';
+const OPENWEBNINJA_METHOD = 'reverse_image_search';
 const GOOGLE_VISION_WEB_DETECTION_USD = 0.0015;
+const OPENWEBNINJA_ESTIMATED_COST_USD = 0.0025;
 const SCAN_RETRY_HOURS = 6;
 const DEFAULT_RESCAN_DAYS = 14;
 const RECENT_FINGERPRINT_SCAN_HOURS = 72;
@@ -413,11 +416,13 @@ const nextUtcDayIso = (): string => {
   return next.toISOString();
 };
 
-const providerToSearchProvider = (scanProvider: string | null | undefined): 'google_vision' | 'serpapi_lens' => {
+const providerToSearchProvider = (scanProvider: string | null | undefined): 'google_vision' | 'serpapi_lens' | 'openwebninja' => {
+  if (scanProvider === OPENWEBNINJA_PROVIDER) return 'openwebninja';
   return scanProvider === SERPAPI_LENS_PROVIDER ? 'serpapi_lens' : 'google_vision';
 };
 
 const estimatedProviderCostUsd = (settings: BrandScanSettings, scanProvider: string | null | undefined): number => {
+  if (scanProvider === OPENWEBNINJA_PROVIDER) return OPENWEBNINJA_ESTIMATED_COST_USD;
   return scanProvider === SERPAPI_LENS_PROVIDER
     ? settings.serpapiEstimatedCostUsd
     : settings.googleVisionEstimatedCostUsd;
@@ -2124,12 +2129,16 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       rawEvidence: result.rawEvidence || undefined,
     };
     const activeSearchProvider = getVisionConfig().provider;
-    const defaultDetectionProvider = activeSearchProvider === 'serpapi_lens'
-      ? SERPAPI_LENS_PROVIDER
-      : GOOGLE_VISION_PROVIDER;
-    const defaultDetectionMethod = activeSearchProvider === 'serpapi_lens'
-      ? SERPAPI_LENS_METHOD
-      : GOOGLE_WEB_DETECTION_METHOD;
+    const defaultDetectionProvider = activeSearchProvider === 'openwebninja'
+      ? OPENWEBNINJA_PROVIDER
+      : activeSearchProvider === 'serpapi_lens'
+        ? SERPAPI_LENS_PROVIDER
+        : GOOGLE_VISION_PROVIDER;
+    const defaultDetectionMethod = activeSearchProvider === 'openwebninja'
+      ? OPENWEBNINJA_METHOD
+      : activeSearchProvider === 'serpapi_lens'
+        ? SERPAPI_LENS_METHOD
+        : GOOGLE_WEB_DETECTION_METHOD;
 
     if (!currentBrand && isLocalDemoMode) {
       const duplicate = infringements.some((item) =>
@@ -3404,15 +3413,21 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     const visionConfig = getVisionConfig();
     const visionEnabled = isVisionConfigured();
     const activeSearchProvider = visionConfig.provider;
-    const detectionProvider = activeSearchProvider === 'serpapi_lens'
-      ? SERPAPI_LENS_PROVIDER
-      : GOOGLE_VISION_PROVIDER;
-    const detectionMethod = activeSearchProvider === 'serpapi_lens'
-      ? SERPAPI_LENS_METHOD
-      : GOOGLE_WEB_DETECTION_METHOD;
-    const estimatedScanCostUsd = activeSearchProvider === 'serpapi_lens'
-      ? undefined
-      : GOOGLE_VISION_WEB_DETECTION_USD;
+    const detectionProvider = activeSearchProvider === 'openwebninja'
+      ? OPENWEBNINJA_PROVIDER
+      : activeSearchProvider === 'serpapi_lens'
+        ? SERPAPI_LENS_PROVIDER
+        : GOOGLE_VISION_PROVIDER;
+    const detectionMethod = activeSearchProvider === 'openwebninja'
+      ? OPENWEBNINJA_METHOD
+      : activeSearchProvider === 'serpapi_lens'
+        ? SERPAPI_LENS_METHOD
+        : GOOGLE_WEB_DETECTION_METHOD;
+    const estimatedScanCostUsd = activeSearchProvider === 'openwebninja'
+      ? OPENWEBNINJA_ESTIMATED_COST_USD
+      : activeSearchProvider === 'serpapi_lens'
+        ? undefined
+        : GOOGLE_VISION_WEB_DETECTION_USD;
     const nowIso = new Date().toISOString();
 
     let content: string | undefined;
@@ -3479,10 +3494,11 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
         return localAssetId;
       }
 
-      if (activeSearchProvider === 'serpapi_lens') {
+      if (activeSearchProvider === 'serpapi_lens' || activeSearchProvider === 'openwebninja') {
+        const providerLabel = activeSearchProvider === 'openwebninja' ? 'OpenWebNinja' : 'SerpApi Google Lens';
         addNotification(
           'info',
-          'SerpApi Google Lens requires a remotely accessible image URL. Disable auth bypass or sign in so assets upload to Supabase first.'
+          `${providerLabel} requires a remotely accessible image URL. Disable auth bypass or sign in so assets upload to Supabase first.`
         );
         return localAssetId;
       }

@@ -9,6 +9,7 @@ export interface RuntimeConfig {
   bypassAuth: boolean;
   bypassRole: 'admin' | 'brand';
   serpApiServerKey: boolean;
+  rapidApiConfigured: boolean;
 }
 
 // Server-side: read directly from env vars
@@ -17,6 +18,7 @@ export function getServerRuntimeConfig(): RuntimeConfig {
     bypassAuth: process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true',
     bypassRole: process.env.NEXT_PUBLIC_BYPASS_ROLE === 'admin' ? 'admin' : 'brand',
     serpApiServerKey: process.env.NEXT_PUBLIC_SERPAPI_SERVER_KEY === 'true',
+    rapidApiConfigured: process.env.NEXT_PUBLIC_RAPIDAPI_CONFIGURED === 'true',
   };
 }
 
@@ -31,6 +33,7 @@ function getClientRuntimeConfig(): RuntimeConfig {
     bypassAuth: process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true',
     bypassRole: process.env.NEXT_PUBLIC_BYPASS_ROLE === 'admin' ? 'admin' : 'brand',
     serpApiServerKey: process.env.NEXT_PUBLIC_SERPAPI_SERVER_KEY === 'true',
+    rapidApiConfigured: process.env.NEXT_PUBLIC_RAPIDAPI_CONFIGURED === 'true',
   };
 }
 
@@ -54,6 +57,10 @@ export const getBypassRole = (): 'admin' | 'brand' => {
 
 export const isSerpApiServerKeyEnabled = (): boolean => {
   return getRuntimeConfig().serpApiServerKey;
+};
+
+export const isRapidApiConfigured = (): boolean => {
+  return getRuntimeConfig().rapidApiConfigured;
 };
 
 export const isSupabaseEnvConfigured = (): boolean => {

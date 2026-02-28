@@ -204,6 +204,9 @@ export interface PersistedAsset {
   lastScanError?: string;
 }
 
+// Image search provider type
+export type ImageSearchProvider = 'google_vision' | 'serpapi_lens' | 'openwebninja';
+
 // Vision API search result types
 export interface VisionSearchResult {
   url: string;

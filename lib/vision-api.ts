@@ -1,8 +1,9 @@
-// Reverse image search client supporting Google Vision and SerpApi Google Lens.
+// Reverse image search client supporting Google Vision, SerpApi Google Lens, and OpenWebNinja.
 
 import { VisionSearchResponse, VisionSearchResult, VisionWebEntity } from '../types';
-import { getVisionConfig, isServerManagedSerpApiEnabled, type ImageSearchProvider } from './api-config';
+import { getVisionConfig, isServerManagedSerpApiEnabled, isServerManagedRapidApiEnabled, type ImageSearchProvider } from './api-config';
 import { parseSerpApiListings } from './provider-serpapi';
+import { searchReverseImage, mapReverseImageToVisionShape } from './provider-openwebninja-reverse-image';
 
 const VISION_API_URL = 'https://vision.googleapis.com/v1/images:annotate';
 const SERPAPI_PROXY_URL = '/api/serpapi/search.json';
@@ -68,6 +69,9 @@ interface SerpApiLensResponse {
   [key: string]: any;
 }
 
+const OPENWEBNINJA_PROXY_URL = '/api/openwebninja/reverse_image_search/reverse-image-search';
+const OPENWEBNINJA_TEST_IMAGE_URL = 'https://upload.wikimedia.org/wikipedia/commons/3/3f/Fronalpstock_big.jpg';
+
 interface SearchByImageOptions {
   imageUrl?: string;
   maxResults?: number;
@@ -132,6 +136,9 @@ const resolveApiKey = (
 ): string => {
   const override = (options.apiKeyOverride || '').trim();
   if (override) return override;
+
+  // OpenWebNinja uses server-side RAPIDAPI_KEY via proxy, no client key needed
+  if (provider === 'openwebninja') return '';
 
   if (provider === 'serpapi_lens') {
     return (config.serpApiKey || config.apiKey || '').trim();
@@ -416,12 +423,56 @@ const searchWithSerpApiLens = async (apiKey: string, imageUrl?: string): Promise
   return merged;
 };
 
+const searchWithOpenWebNinja = async (imageUrl?: string, maxResults = 50): Promise<VisionSearchResponse> => {
+  if (!imageUrl) {
+    throw new Error('OpenWebNinja Reverse Image Search requires an image URL. Upload the asset to storage and retry.');
+  }
+
+  // Call via the proxy to keep RAPIDAPI_KEY server-side
+  const params = new URLSearchParams({
+    url: imageUrl,
+    limit: String(maxResults),
+    safe_search: 'off',
+  });
+
+  let response: Response;
+  try {
+    response = await fetch(`${OPENWEBNINJA_PROXY_URL}?${params.toString()}`, {
+      method: 'GET',
+    });
+  } catch {
+    throw new Error(
+      'OpenWebNinja request failed (likely network/proxy). Verify the Next.js route handler at /api/openwebninja and RAPIDAPI_KEY configuration.'
+    );
+  }
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const errorMessage = data.error || `OpenWebNinja error: ${response.status} ${response.statusText}`;
+    throw new Error(errorMessage);
+  }
+
+  if (data.status && data.status !== 'OK') {
+    throw new Error(data.message || data.error || 'OpenWebNinja search returned an error');
+  }
+
+  return mapReverseImageToVisionShape(data);
+};
+
 export async function searchByImage(imageBase64: string, options: SearchByImageOptions = {}): Promise<VisionSearchResponse> {
   const config = getVisionConfig();
-  const provider = options.providerOverride === 'serpapi_lens' ? 'serpapi_lens' : (options.providerOverride || config.provider);
+  const provider: ImageSearchProvider = options.providerOverride || config.provider;
   const apiKey = resolveApiKey(provider, options, config);
 
   const maxResults = options.maxResults || 20;
+
+  if (provider === 'openwebninja') {
+    if (!isServerManagedRapidApiEnabled()) {
+      throw new Error('OpenWebNinja is not configured. Set RAPIDAPI_KEY and NEXT_PUBLIC_RAPIDAPI_CONFIGURED=true.');
+    }
+    return searchWithOpenWebNinja(options.imageUrl, maxResults);
+  }
 
   if (provider === 'serpapi_lens') {
     if (!apiKey && !isServerManagedSerpApiEnabled() && isDirectSerpApiRequest()) {
@@ -442,6 +493,24 @@ export async function testVisionApiConnection(): Promise<boolean> {
 
   if (!config.isConfigured) {
     return false;
+  }
+
+  if (config.provider === 'openwebninja') {
+    try {
+      const params = new URLSearchParams({
+        url: OPENWEBNINJA_TEST_IMAGE_URL,
+        limit: '1',
+        safe_search: 'off',
+      });
+      const response = await fetch(`${OPENWEBNINJA_PROXY_URL}?${params.toString()}`, {
+        method: 'GET',
+      });
+      if (!response.ok) return false;
+      const data = await response.json().catch(() => ({}));
+      return data.status === 'OK' || Array.isArray(data.data);
+    } catch {
+      return false;
+    }
   }
 
   if (config.provider === 'serpapi_lens') {

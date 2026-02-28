@@ -12,6 +12,15 @@ import {
   type SerpApiListing,
   type SerpApiSearchCall,
 } from '@/lib/provider-serpapi';
+import {
+  searchReverseImage,
+  mapReverseImageToListings,
+  toSearchCallShape,
+} from '@/lib/provider-openwebninja-reverse-image';
+import { searchProducts, mapProductsToListings } from '@/lib/provider-openwebninja-product-search';
+import { getProductDetails, getSellerProfile, extractAsinFromUrl, extractAmazonCountry } from '@/lib/provider-openwebninja-amazon';
+import { scrapeWebsiteContacts } from '@/lib/provider-openwebninja-contacts';
+import { searchSocialLinks } from '@/lib/provider-openwebninja-social';
 import { scoreRevenue, type RevenueScoringOrder } from '@/lib/revenue-scoring';
 import { computeFixedCadenceNextScanAt } from '@/lib/scan-cadence';
 import { buildEvidenceBundle, normalizeEvidenceSnapshot } from '@/lib/evidence-normalizer';
@@ -24,6 +33,7 @@ const TOKEN_TTL_SECONDS = 120;
 const MAX_MATCHES_PER_SCAN = 25;
 const MAX_OPENROUTER_SCORES_PER_SCAN = 3;
 const SERPAPI_LENS_PROVIDER = 'serpapi_lens';
+const OPENWEBNINJA_PROVIDER = 'openwebninja';
 
 const DEFAULT_SCAN_SETTINGS = {
   maxScansPerDay: 250,
@@ -39,10 +49,25 @@ const DEFAULT_SCAN_SETTINGS = {
   openrouterMaxTokens: 500,
   maxProviderCallsPerScan: 3,
   maxSpendUsdPerMonth: 250,
+  // OpenWebNinja service toggles
+  activeScanProvider: 'openwebninja' as 'serpapi_lens' | 'openwebninja',
+  enableReverseImageSearch: true,
+  enableProductSearch: false,
+  enableAmazonData: false,
+  enableWebsiteContacts: false,
+  enableSocialLinks: false,
+  enableWebUnblocker: false,
+  reverseImageSearchCostUsd: 0.0025,
+  productSearchCostUsd: 0.0025,
+  amazonDataCostUsd: 0.0025,
+  websiteContactsCostUsd: 0.0025,
+  socialLinksCostUsd: 0.0025,
+  webUnblockerCostUsd: 0.0005,
 };
 
 const PUBLIC_APP_URL = (process.env.NEXT_PUBLIC_APP_URL || process.env.PUBLIC_APP_URL || '').trim();
 const serpApiKey = (process.env.SERPAPI_API_KEY || '').trim();
+const rapidApiKey = (process.env.RAPIDAPI_KEY || '').trim();
 const workerSecret = (process.env.SCAN_WORKER_SECRET || '').trim();
 const openRouterApiKey = (process.env.OPENROUTER_API_KEY || '').trim();
 const envOpenRouterModel = (process.env.OPENROUTER_MODEL || '').trim();
@@ -72,6 +97,20 @@ type ScanSettings = {
   openrouterMaxTokens: number;
   maxProviderCallsPerScan: number;
   maxSpendUsdPerMonth: number;
+  // OpenWebNinja service toggles
+  activeScanProvider: 'serpapi_lens' | 'openwebninja';
+  enableReverseImageSearch: boolean;
+  enableProductSearch: boolean;
+  enableAmazonData: boolean;
+  enableWebsiteContacts: boolean;
+  enableSocialLinks: boolean;
+  enableWebUnblocker: boolean;
+  reverseImageSearchCostUsd: number;
+  productSearchCostUsd: number;
+  amazonDataCostUsd: number;
+  websiteContactsCostUsd: number;
+  socialLinksCostUsd: number;
+  webUnblockerCostUsd: number;
 };
 
 const nowIso = (): string => new Date().toISOString();
@@ -194,7 +233,20 @@ const loadScanSettings = async (brandId: string): Promise<ScanSettings> => {
       openrouter_model,
       openrouter_max_tokens,
       max_provider_calls_per_scan,
-      max_spend_usd_per_month
+      max_spend_usd_per_month,
+      active_scan_provider,
+      enable_reverse_image_search,
+      enable_product_search,
+      enable_amazon_data,
+      enable_website_contacts,
+      enable_social_links,
+      enable_web_unblocker,
+      reverse_image_search_cost_usd,
+      product_search_cost_usd,
+      amazon_data_cost_usd,
+      website_contacts_cost_usd,
+      social_links_cost_usd,
+      web_unblocker_cost_usd
     `)
     .eq('brand_id', brandId)
     .maybeSingle();
@@ -213,6 +265,8 @@ const loadScanSettings = async (brandId: string): Promise<ScanSettings> => {
     : configuredModel;
   const effectiveModel = envOpenRouterModel || normalizedModel || defaultOpenRouterModel;
 
+  const activeScanProvider = data.active_scan_provider === 'serpapi_lens' ? 'serpapi_lens' as const : 'openwebninja' as const;
+
   return {
     maxScansPerDay: Number(data.max_scans_per_day ?? DEFAULT_SCAN_SETTINGS.maxScansPerDay),
     maxSpendUsdPerDay: Number(data.max_spend_usd_per_day ?? DEFAULT_SCAN_SETTINGS.maxSpendUsdPerDay),
@@ -227,6 +281,19 @@ const loadScanSettings = async (brandId: string): Promise<ScanSettings> => {
     openrouterMaxTokens: Number(data.openrouter_max_tokens ?? DEFAULT_SCAN_SETTINGS.openrouterMaxTokens),
     maxProviderCallsPerScan: Number(data.max_provider_calls_per_scan ?? DEFAULT_SCAN_SETTINGS.maxProviderCallsPerScan),
     maxSpendUsdPerMonth: Number(data.max_spend_usd_per_month ?? DEFAULT_SCAN_SETTINGS.maxSpendUsdPerMonth),
+    activeScanProvider,
+    enableReverseImageSearch: data.enable_reverse_image_search ?? DEFAULT_SCAN_SETTINGS.enableReverseImageSearch,
+    enableProductSearch: data.enable_product_search ?? DEFAULT_SCAN_SETTINGS.enableProductSearch,
+    enableAmazonData: data.enable_amazon_data ?? DEFAULT_SCAN_SETTINGS.enableAmazonData,
+    enableWebsiteContacts: data.enable_website_contacts ?? DEFAULT_SCAN_SETTINGS.enableWebsiteContacts,
+    enableSocialLinks: data.enable_social_links ?? DEFAULT_SCAN_SETTINGS.enableSocialLinks,
+    enableWebUnblocker: data.enable_web_unblocker ?? DEFAULT_SCAN_SETTINGS.enableWebUnblocker,
+    reverseImageSearchCostUsd: Number(data.reverse_image_search_cost_usd ?? DEFAULT_SCAN_SETTINGS.reverseImageSearchCostUsd),
+    productSearchCostUsd: Number(data.product_search_cost_usd ?? DEFAULT_SCAN_SETTINGS.productSearchCostUsd),
+    amazonDataCostUsd: Number(data.amazon_data_cost_usd ?? DEFAULT_SCAN_SETTINGS.amazonDataCostUsd),
+    websiteContactsCostUsd: Number(data.website_contacts_cost_usd ?? DEFAULT_SCAN_SETTINGS.websiteContactsCostUsd),
+    socialLinksCostUsd: Number(data.social_links_cost_usd ?? DEFAULT_SCAN_SETTINGS.socialLinksCostUsd),
+    webUnblockerCostUsd: Number(data.web_unblocker_cost_usd ?? DEFAULT_SCAN_SETTINGS.webUnblockerCostUsd),
   };
 };
 
@@ -339,7 +406,8 @@ const recordProviderRun = async (
   brandId: string,
   assetId: string,
   call: SerpApiSearchCall,
-  estimatedCostUsd: number
+  estimatedCostUsd: number,
+  providerName?: string
 ): Promise<string | null> => {
   const supabase: any = getSupabaseService();
   const { data, error } = await supabase
@@ -347,7 +415,7 @@ const recordProviderRun = async (
     .insert({
       brand_id: brandId,
       asset_id: assetId,
-      provider: SERPAPI_LENS_PROVIDER,
+      provider: providerName || SERPAPI_LENS_PROVIDER,
       endpoint: call.endpoint,
       request_meta: call.query,
       response_status: call.status || null,
@@ -451,8 +519,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (!serpApiKey) {
-    return NextResponse.json({ error: 'Missing SERPAPI_API_KEY' }, { status: 500 });
+  if (!serpApiKey && !rapidApiKey) {
+    return NextResponse.json({ error: 'Missing RAPIDAPI_KEY (or legacy SERPAPI_API_KEY)' }, { status: 500 });
   }
 
   const supabase: any = getSupabaseService();
@@ -485,8 +553,13 @@ export async function POST(req: NextRequest) {
     const monthlySpend = await loadMonthlySpendUsage(brand.id);
     const whitelistDomains = await loadWhitelistDomains(brand.id);
 
-    const perProviderCallCost = Math.max(0, settings.serpapiEstimatedCostUsd);
-    const estimatedCallsPerScan = Math.max(1, Math.min(settings.maxProviderCallsPerScan, 10));
+    const isOpenWebNinja = settings.activeScanProvider === 'openwebninja' && rapidApiKey;
+    const perProviderCallCost = isOpenWebNinja
+      ? Math.max(0, settings.reverseImageSearchCostUsd)
+      : Math.max(0, settings.serpapiEstimatedCostUsd);
+    const estimatedCallsPerScan = isOpenWebNinja
+      ? 1  // OpenWebNinja returns results in a single call
+      : Math.max(1, Math.min(settings.maxProviderCallsPerScan, 10));
     const estimatedCost = perProviderCallCost * estimatedCallsPerScan;
     const remainingScans = Math.max(0, settings.maxScansPerDay - budget.scansExecuted);
     const remainingSpendUsd = Math.max(0, settings.maxSpendUsdPerDay - budget.spendUsd);
@@ -581,7 +654,9 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      if (job.scan_provider !== SERPAPI_LENS_PROVIDER) {
+      const activeProvider = isOpenWebNinja ? OPENWEBNINJA_PROVIDER : SERPAPI_LENS_PROVIDER;
+      const supportedProviders = [SERPAPI_LENS_PROVIDER, OPENWEBNINJA_PROVIDER, null, ''];
+      if (job.scan_provider && !supportedProviders.includes(job.scan_provider)) {
         const finishedAt = nowIso();
         await supabase
           .from('assets')
@@ -589,7 +664,7 @@ export async function POST(req: NextRequest) {
             scan_status: 'queued',
             next_scan_at: addHours(settings.baseIntervalDays * 24),
             last_scanned_at: finishedAt,
-            last_scan_error: 'Deferred by server worker because provider is not serpapi_lens.',
+            last_scan_error: `Deferred by server worker because provider '${job.scan_provider}' is not supported.`,
           })
           .eq('id', job.id);
 
@@ -607,7 +682,7 @@ export async function POST(req: NextRequest) {
             invalid_results: 0,
             failed_results: 0,
             estimated_cost_usd: 0,
-            error_message: 'Provider not supported by server Lens worker',
+            error_message: 'Provider not supported by server worker',
             metadata: {
               worker: 'server_cron',
               reason: 'provider_deferred',
@@ -618,6 +693,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      const tokenProvider = isOpenWebNinja ? OPENWEBNINJA_PROVIDER as 'openwebninja' : SERPAPI_LENS_PROVIDER as 'serpapi_lens';
       let providerUrl = '';
       if (isPrivateHost(publicOrigin)) {
         const { data: signed, error: signedError } = await supabase.storage
@@ -631,7 +707,7 @@ export async function POST(req: NextRequest) {
               scan_status: 'failed',
               last_scanned_at: finishedAt,
               next_scan_at: addHours(settings.retryDelayHours),
-              last_scan_error: 'Failed to create signed storage URL for SerpApi',
+              last_scan_error: 'Failed to create signed storage URL',
             })
             .eq('id', job.id);
           await supabase
@@ -639,7 +715,7 @@ export async function POST(req: NextRequest) {
             .insert({
               brand_id: job.brand_id,
               asset_id: job.id,
-              provider: SERPAPI_LENS_PROVIDER,
+              provider: activeProvider,
               status: 'failed',
               started_at: startedAt,
               finished_at: finishedAt,
@@ -648,7 +724,7 @@ export async function POST(req: NextRequest) {
               invalid_results: 0,
               failed_results: 1,
               estimated_cost_usd: 0,
-              error_message: 'Failed to create signed storage URL for SerpApi',
+              error_message: 'Failed to create signed storage URL',
               metadata: {
                 worker: 'server_cron',
                 reason: 'signed_url_error',
@@ -664,7 +740,7 @@ export async function POST(req: NextRequest) {
           {
             assetId: job.id,
             brandId: job.brand_id,
-            provider: SERPAPI_LENS_PROVIDER,
+            provider: tokenProvider,
           },
           TOKEN_TTL_SECONDS
         );
@@ -675,7 +751,7 @@ export async function POST(req: NextRequest) {
             token_hash: hashProviderToken(token),
             asset_id: job.id,
             brand_id: job.brand_id,
-            provider: SERPAPI_LENS_PROVIDER,
+            provider: tokenProvider,
             expires_at: tokenExpiresAt,
             max_fetches: 5,
             fetch_count: 0,
@@ -698,7 +774,7 @@ export async function POST(req: NextRequest) {
             .insert({
               brand_id: job.brand_id,
               asset_id: job.id,
-              provider: SERPAPI_LENS_PROVIDER,
+              provider: activeProvider,
               status: 'failed',
               started_at: startedAt,
               finished_at: finishedAt,
@@ -732,62 +808,109 @@ export async function POST(req: NextRequest) {
       const providerCalls: Array<{ call: SerpApiSearchCall; runId: string | null }> = [];
 
       try {
-        const maxProviderCalls = Math.max(1, Math.min(settings.maxProviderCallsPerScan, 10));
+        let mergedListings: SerpApiListing[] = [];
 
-        const lensAll = await searchLensAll(providerUrl, serpApiKey);
-        providerCallsMade += 1;
-        providerCalls.push({
-          call: lensAll,
-          runId: await recordProviderRun(job.brand_id, job.id, lensAll, perProviderCallCost),
-        });
-
-        if (maxProviderCalls > 1) {
-          const lensProducts = await searchLensProducts(providerUrl, serpApiKey);
+        if (isOpenWebNinja) {
+          // ─── OpenWebNinja path ───
+          const reverseResult = await searchReverseImage(providerUrl, rapidApiKey, 50);
+          const reverseCall = toSearchCallShape(reverseResult, reverseResult.response, providerUrl);
           providerCallsMade += 1;
           providerCalls.push({
-            call: lensProducts,
-            runId: await recordProviderRun(job.brand_id, job.id, lensProducts, perProviderCallCost),
+            call: reverseCall,
+            runId: await recordProviderRun(job.brand_id, job.id, reverseCall, settings.reverseImageSearchCostUsd, OPENWEBNINJA_PROVIDER),
           });
-        }
 
-        if (maxProviderCalls > 2) {
-          const sourcePayload = providerCalls.find((entry) => entry.call.ok && entry.call.payload)?.call.payload || {};
-          const followupLinks = extractFollowupSerpApiLinks(sourcePayload, maxProviderCalls - 2);
-          for (const link of followupLinks) {
-            const followup = await fetchSerpApiFollowupLink(link, serpApiKey);
-            providerCallsMade += 1;
-            providerCalls.push({
-              call: followup,
-              runId: await recordProviderRun(job.brand_id, job.id, followup, perProviderCallCost),
-            });
-          }
-        }
-
-        const usableCalls = providerCalls.filter(({ call }) => {
-          if (!call.ok) return false;
-          const payloadError = typeof call.payload?.error === 'string' ? call.payload.error : '';
-          return !payloadError || isNoResultsError(payloadError);
-        });
-
-        if (usableCalls.length === 0) {
-          const firstFailure = providerCalls.find(({ call }) => !call.ok || call.payload?.error);
-          const reason = firstFailure?.call.error
-            || (typeof firstFailure?.call.payload?.error === 'string' ? firstFailure?.call.payload?.error : '')
-            || 'SerpApi request failed';
-
-          if (isNoResultsError(reason)) {
-            status = 'success';
+          if (!reverseResult.ok) {
+            errorMessage = reverseResult.error || 'OpenWebNinja reverse image search failed';
           } else {
-            errorMessage = reason;
+            let listings = mapReverseImageToListings(reverseResult.response);
+
+            // Optional: Product Search enrichment
+            if (settings.enableProductSearch && rapidApiKey && listings.length > 0) {
+              try {
+                const topTitle = listings[0]?.title;
+                if (topTitle) {
+                  const productResult = await searchProducts(topTitle, rapidApiKey, { limit: 10 });
+                  providerCallsMade += 1;
+                  if (productResult.ok && Array.isArray(productResult.response?.data)) {
+                    const productListings = mapProductsToListings(productResult.response.data);
+                    listings = mergeListingsByUrl([...listings, ...productListings]);
+                  }
+                }
+              } catch { /* Product enrichment is best-effort */ }
+            }
+
+            mergedListings = listings.slice(0, MAX_MATCHES_PER_SCAN);
+
+            if (mergedListings.length === 0) {
+              status = 'success';
+            }
           }
         } else {
-          const mergedListings = mergeListingsByUrl(
-            usableCalls.flatMap(({ call }) => parseSerpApiListings(call.payload || {}))
-          ).slice(0, MAX_MATCHES_PER_SCAN);
+          // ─── Legacy SerpApi path ───
+          const maxProviderCalls = Math.max(1, Math.min(settings.maxProviderCallsPerScan, 10));
+
+          const lensAll = await searchLensAll(providerUrl, serpApiKey);
+          providerCallsMade += 1;
+          providerCalls.push({
+            call: lensAll,
+            runId: await recordProviderRun(job.brand_id, job.id, lensAll, perProviderCallCost),
+          });
+
+          if (maxProviderCalls > 1) {
+            const lensProducts = await searchLensProducts(providerUrl, serpApiKey);
+            providerCallsMade += 1;
+            providerCalls.push({
+              call: lensProducts,
+              runId: await recordProviderRun(job.brand_id, job.id, lensProducts, perProviderCallCost),
+            });
+          }
+
+          if (maxProviderCalls > 2) {
+            const sourcePayload = providerCalls.find((entry) => entry.call.ok && entry.call.payload)?.call.payload || {};
+            const followupLinks = extractFollowupSerpApiLinks(sourcePayload, maxProviderCalls - 2);
+            for (const link of followupLinks) {
+              const followup = await fetchSerpApiFollowupLink(link, serpApiKey);
+              providerCallsMade += 1;
+              providerCalls.push({
+                call: followup,
+                runId: await recordProviderRun(job.brand_id, job.id, followup, perProviderCallCost),
+              });
+            }
+          }
+
+          const usableCalls = providerCalls.filter(({ call }) => {
+            if (!call.ok) return false;
+            const payloadError = typeof call.payload?.error === 'string' ? call.payload.error : '';
+            return !payloadError || isNoResultsError(payloadError);
+          });
+
+          if (usableCalls.length === 0) {
+            const firstFailure = providerCalls.find(({ call }) => !call.ok || call.payload?.error);
+            const reason = firstFailure?.call.error
+              || (typeof firstFailure?.call.payload?.error === 'string' ? firstFailure?.call.payload?.error : '')
+              || 'SerpApi request failed';
+
+            if (isNoResultsError(reason)) {
+              status = 'success';
+            } else {
+              errorMessage = reason;
+            }
+          } else {
+            mergedListings = mergeListingsByUrl(
+              usableCalls.flatMap(({ call }) => parseSerpApiListings(call.payload || {}))
+            ).slice(0, MAX_MATCHES_PER_SCAN);
+          }
+        }
+
+        if (mergedListings.length > 0) {
 
           const seenLinks = new Set<string>();
-          const providerPayloads = usableCalls.map(({ call }) => call.payload || {});
-          const defaultProviderRunId = usableCalls.find((entry) => entry.runId)?.runId || null;
+          const providerPayloads = providerCalls
+            .filter(({ call }) => call.ok || call.payload)
+            .map(({ call }) => call.payload || {});
+          const defaultProviderRunId = providerCalls.find((entry) => entry.runId)?.runId || null;
+          const detectionMethod = isOpenWebNinja ? 'reverse_image_search' : 'google_lens';
 
           for (const listing of mergedListings) {
             const normalizedLink = normalizeUrl(listing.link);
@@ -878,8 +1001,8 @@ export async function POST(req: NextRequest) {
                   site_visitors: siteVisitors,
                   last_evidence_at: nowIso(),
                   evidence_snapshot: evidenceSnapshot,
-                  detection_provider: SERPAPI_LENS_PROVIDER,
-                  detection_method: 'google_lens',
+                  detection_provider: activeProvider,
+                  detection_method: detectionMethod,
                   source_fingerprint: job.fingerprint || null,
                 })
                 .eq('id', existing.id);
@@ -961,8 +1084,8 @@ export async function POST(req: NextRequest) {
                   original_asset_id: job.id,
                   copycat_image_url: copycatImage,
                   similarity_score: similarity,
-                  detection_provider: SERPAPI_LENS_PROVIDER,
-                  detection_method: 'google_lens',
+                  detection_provider: activeProvider,
+                  detection_method: detectionMethod,
                   source_fingerprint: job.fingerprint || null,
                   platform,
                   infringing_url: normalizedLink,
@@ -1003,7 +1126,7 @@ export async function POST(req: NextRequest) {
           status = 'success';
         }
       } catch (err: any) {
-        errorMessage = err?.message || 'SerpApi request failed';
+        errorMessage = err?.message || `${activeProvider} request failed`;
       } finally {
         if (providerCallsMade > 0) {
           const scanCost = Number((providerCallsMade * perProviderCallCost).toFixed(4));
@@ -1042,7 +1165,7 @@ export async function POST(req: NextRequest) {
         .insert({
           brand_id: job.brand_id,
           asset_id: job.id,
-          provider: SERPAPI_LENS_PROVIDER,
+          provider: activeProvider,
           status,
           started_at: startedAt,
           finished_at: finishedAt,
@@ -1058,6 +1181,7 @@ export async function POST(req: NextRequest) {
             provider_calls_made: providerCallsMade,
             observed_matches: matchesObserved,
             openrouter_scores_used: openRouterScoresUsed,
+            active_provider: activeProvider,
             idempotencyKey,
           },
         });
