@@ -1,7 +1,7 @@
 // Reverse image search client supporting Google Vision, SerpApi Google Lens, and OpenWebNinja.
 
 import { VisionSearchResponse, VisionSearchResult, VisionWebEntity } from '../types';
-import { getVisionConfig, isServerManagedSerpApiEnabled, isServerManagedRapidApiEnabled, type ImageSearchProvider } from './api-config';
+import { getVisionConfig, isServerManagedSerpApiEnabled, isOpenWebNinjaEnabled, type ImageSearchProvider } from './api-config';
 import { parseSerpApiListings } from './provider-serpapi';
 import { searchReverseImage, mapReverseImageToVisionShape } from './provider-openwebninja-reverse-image';
 
@@ -137,7 +137,7 @@ const resolveApiKey = (
   const override = (options.apiKeyOverride || '').trim();
   if (override) return override;
 
-  // OpenWebNinja uses server-side RAPIDAPI_KEY via proxy, no client key needed
+  // OpenWebNinja uses server-side OPENWEBNINJA_API_KEY via proxy, no client key needed
   if (provider === 'openwebninja') return '';
 
   if (provider === 'serpapi_lens') {
@@ -428,7 +428,7 @@ const searchWithOpenWebNinja = async (imageUrl?: string, maxResults = 50): Promi
     throw new Error('OpenWebNinja Reverse Image Search requires an image URL. Upload the asset to storage and retry.');
   }
 
-  // Call via the proxy to keep RAPIDAPI_KEY server-side
+  // Call via the proxy to keep OPENWEBNINJA_API_KEY server-side
   const params = new URLSearchParams({
     url: imageUrl,
     limit: String(maxResults),
@@ -442,7 +442,7 @@ const searchWithOpenWebNinja = async (imageUrl?: string, maxResults = 50): Promi
     });
   } catch {
     throw new Error(
-      'OpenWebNinja request failed (likely network/proxy). Verify the Next.js route handler at /api/openwebninja and RAPIDAPI_KEY configuration.'
+      'OpenWebNinja request failed (likely network/proxy). Verify the Next.js route handler at /api/openwebninja and OPENWEBNINJA_API_KEY configuration.'
     );
   }
 
@@ -468,8 +468,8 @@ export async function searchByImage(imageBase64: string, options: SearchByImageO
   const maxResults = options.maxResults || 20;
 
   if (provider === 'openwebninja') {
-    if (!isServerManagedRapidApiEnabled()) {
-      throw new Error('OpenWebNinja is not configured. Set RAPIDAPI_KEY and NEXT_PUBLIC_RAPIDAPI_CONFIGURED=true.');
+    if (!isOpenWebNinjaEnabled()) {
+      throw new Error('OpenWebNinja is not configured. Set OPENWEBNINJA_API_KEY and NEXT_PUBLIC_OPENWEBNINJA_CONFIGURED=true.');
     }
     return searchWithOpenWebNinja(options.imageUrl, maxResults);
   }

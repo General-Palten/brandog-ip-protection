@@ -44,7 +44,7 @@ export async function searchProducts(
 
   const result = await callOpenWebNinja<ProductSearchResponse>({
     service: 'product_search',
-    path: '/search',
+    path: '/search-v2',
     params,
     apiKey,
   });
@@ -63,8 +63,8 @@ export async function getProductOffers(
 ): Promise<{ response: Record<string, any>; latencyMs: number; ok: boolean; error?: string }> {
   const result = await callOpenWebNinja({
     service: 'product_search',
-    path: `/product/${encodeURIComponent(productId)}/offers`,
-    params: {},
+    path: '/product-offers-v2',
+    params: { product_id: productId },
     apiKey,
   });
 

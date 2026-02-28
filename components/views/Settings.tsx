@@ -10,7 +10,7 @@ import {
   Users, ChevronDown, ChevronUp, Search, Calendar, AlertTriangle,
   FileText, Type, Zap, X, Phone, Mail, Plug
 } from 'lucide-react';
-import { isServerManagedRapidApiEnabled } from '../../lib/api-config';
+import { isOpenWebNinjaEnabled } from '../../lib/api-config';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import {
   JOB_TITLES, BRAND_ROLES, DASHBOARD_VIEWS, DATE_FORMATS, TIMEZONES,
@@ -153,7 +153,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
   const SERVICE_TOGGLES = [
     { key: 'enable_reverse_image_search', label: 'Reverse Image Search', desc: 'Core detection engine — finds where your protected images appear across the web', cost: 0.0025, defaultOn: true, endpoint: 'reverse-image-search' },
     { key: 'enable_product_search', label: 'Product Search', desc: 'Enrich detected listings with pricing, seller, and product metadata', cost: 0.0025, defaultOn: false, endpoint: 'product-search' },
-    { key: 'enable_amazon_data', label: 'Amazon Data', desc: 'Fetch ASIN details, seller profiles, and review data for Amazon listings', cost: 0.0025, defaultOn: false, endpoint: 'amazon' },
+    { key: 'enable_amazon_data', label: 'Visual Search', desc: 'Visual matches, object detection, and OCR via Google Lens', cost: 0.0025, defaultOn: false, endpoint: 'lens-data' },
     { key: 'enable_website_contacts', label: 'Website Contacts', desc: 'Extract emails, phone numbers, and social links from infringing seller sites', cost: 0.0025, defaultOn: false, endpoint: 'website-contacts' },
     { key: 'enable_social_links', label: 'Social Links', desc: 'Discover social media profiles associated with infringing sellers', cost: 0.0025, defaultOn: false, endpoint: 'social-links' },
     { key: 'enable_web_unblocker', label: 'Web Unblocker', desc: 'Access protected and JS-heavy pages to verify if listings are still active', cost: 0.0005, defaultOn: false, endpoint: 'web-unblocker' },

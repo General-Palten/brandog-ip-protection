@@ -4,7 +4,7 @@
 export type OpenWebNinjaService =
   | 'reverse_image_search'
   | 'product_search'
-  | 'amazon_data'
+  | 'realtime_lens_data'
   | 'website_contacts'
   | 'social_links'
   | 'web_unblocker';
@@ -16,7 +16,8 @@ export interface ServiceDefinition {
   label: string;
   description: string;
   category: ServiceCategory;
-  rapidApiHost: string;
+  /** Direct OpenWebNinja API base URL (e.g. https://api.openwebninja.com/reverse-image-search) */
+  apiBaseUrl: string;
   defaultEnabled: boolean;
   estimatedCostUsd: number;
   /** Column name in scan_settings for the toggle */
@@ -29,42 +30,42 @@ export const SERVICE_CATALOG: ServiceDefinition[] = [
   {
     key: 'reverse_image_search',
     label: 'Reverse Image Search',
-    description: 'Find where brand images appear across the web',
+    description: 'Find exact matches of brand images across the web',
     category: 'core',
-    rapidApiHost: 'reverse-image-search1.p.rapidapi.com',
+    apiBaseUrl: 'https://api.openwebninja.com/reverse-image-search',
     defaultEnabled: true,
     estimatedCostUsd: 0.0025,
     settingsColumn: 'enable_reverse_image_search',
     costColumn: 'reverse_image_search_cost_usd',
   },
   {
-    key: 'product_search',
-    label: 'Product Search',
-    description: 'Enrich matches with multi-source product data via Google Shopping',
-    category: 'enrichment',
-    rapidApiHost: 'real-time-product-search.p.rapidapi.com',
-    defaultEnabled: false,
-    estimatedCostUsd: 0.0025,
-    settingsColumn: 'enable_product_search',
-    costColumn: 'product_search_cost_usd',
-  },
-  {
-    key: 'amazon_data',
-    label: 'Amazon Data',
-    description: 'Seller profiles, reviews, and product details from Amazon',
-    category: 'enrichment',
-    rapidApiHost: 'real-time-amazon-data.p.rapidapi.com',
+    key: 'realtime_lens_data',
+    label: 'Visual Search',
+    description: 'Visual matches, object detection, and OCR via Google Lens',
+    category: 'core',
+    apiBaseUrl: 'https://api.openwebninja.com/realtime-lens-data',
     defaultEnabled: false,
     estimatedCostUsd: 0.0025,
     settingsColumn: 'enable_amazon_data',
     costColumn: 'amazon_data_cost_usd',
   },
   {
+    key: 'product_search',
+    label: 'Product Search',
+    description: 'Search Google Shopping for product listings, offers, and reviews',
+    category: 'enrichment',
+    apiBaseUrl: 'https://api.openwebninja.com/realtime-product-search',
+    defaultEnabled: false,
+    estimatedCostUsd: 0.0025,
+    settingsColumn: 'enable_product_search',
+    costColumn: 'product_search_cost_usd',
+  },
+  {
     key: 'website_contacts',
     label: 'Website Contacts',
-    description: 'Auto-extract emails and contact info for takedown notices',
+    description: 'Extract emails, phone numbers, and social links from websites',
     category: 'enforcement',
-    rapidApiHost: 'website-contacts-scraper.p.rapidapi.com',
+    apiBaseUrl: 'https://api.openwebninja.com/website-contacts-scraper',
     defaultEnabled: false,
     estimatedCostUsd: 0.0025,
     settingsColumn: 'enable_website_contacts',
@@ -73,9 +74,9 @@ export const SERVICE_CATALOG: ServiceDefinition[] = [
   {
     key: 'social_links',
     label: 'Social Links',
-    description: 'Find seller social profiles across platforms',
+    description: 'Find social profiles across Facebook, Instagram, TikTok, and more',
     category: 'monitoring',
-    rapidApiHost: 'social-links-search.p.rapidapi.com',
+    apiBaseUrl: 'https://api.openwebninja.com/social-links-search',
     defaultEnabled: false,
     estimatedCostUsd: 0.0025,
     settingsColumn: 'enable_social_links',
@@ -84,9 +85,9 @@ export const SERVICE_CATALOG: ServiceDefinition[] = [
   {
     key: 'web_unblocker',
     label: 'Web Unblocker',
-    description: 'Re-crawl listings to monitor status changes and re-listings',
+    description: 'Fetch web pages with JS rendering, proxies, and smart retries',
     category: 'monitoring',
-    rapidApiHost: 'web-unblocker1.p.rapidapi.com',
+    apiBaseUrl: 'https://api.openwebninja.com/web-unblocker',
     defaultEnabled: false,
     estimatedCostUsd: 0.0005,
     settingsColumn: 'enable_web_unblocker',

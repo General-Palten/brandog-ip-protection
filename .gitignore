@@ -45,3 +45,6 @@ dist-ssr
 dev-*.log
 dev-*.err.log
 dev-*.out.log
+
+.vercel
+.env*.local

@@ -1,6 +1,6 @@
 // Reverse image search provider configuration (local browser storage).
 
-import { isSerpApiServerKeyEnabled, isRapidApiConfigured } from './runtime-config';
+import { isSerpApiServerKeyEnabled, isOpenWebNinjaConfigured } from './runtime-config';
 
 const STORAGE_KEY = 'brandog_image_search_config';
 const LEGACY_STORAGE_KEY = 'brandog_vision_config';
@@ -17,11 +17,11 @@ export interface VisionConfig {
 
 // Use runtime config for server-managed flags (supports runtime env vars)
 const getServerManagedFlag = (): boolean => isSerpApiServerKeyEnabled();
-const getRapidApiFlag = (): boolean => isRapidApiConfigured();
+const getOpenWebNinjaFlag = (): boolean => isOpenWebNinjaConfigured();
 
 // Auto-select provider: OpenWebNinja > SerpApi > Google Vision
 const getDefaultProvider = (): ImageSearchProvider => {
-  if (getRapidApiFlag()) return 'openwebninja';
+  if (getOpenWebNinjaFlag()) return 'openwebninja';
   if (getServerManagedFlag()) return 'serpapi_lens';
   return 'google_vision';
 };
@@ -31,7 +31,7 @@ const getActiveKey = (
   googleVisionApiKey: string,
   serpApiKey: string
 ): string => {
-  // OpenWebNinja uses server-side RAPIDAPI_KEY, no client key needed
+  // OpenWebNinja uses server-side OPENWEBNINJA_API_KEY, no client key needed
   if (provider === 'openwebninja') return '';
   return provider === 'serpapi_lens' ? serpApiKey : googleVisionApiKey;
 };
@@ -42,7 +42,7 @@ const isProviderConfigured = (
   serpApiKey: string
 ): boolean => {
   if (provider === 'openwebninja') {
-    return getRapidApiFlag();
+    return getOpenWebNinjaFlag();
   }
 
   if (provider === 'serpapi_lens') {
@@ -63,7 +63,7 @@ const parseProvider = (value: unknown): ImageSearchProvider | null => {
 
 export function getVisionConfig(): VisionConfig {
   const serverManaged = getServerManagedFlag();
-  const rapidApiConfigured = getRapidApiFlag();
+  const rapidApiConfigured = getOpenWebNinjaFlag();
   const defaultProvider = getDefaultProvider();
 
   try {
@@ -106,7 +106,7 @@ export function getVisionConfig(): VisionConfig {
       apiKey: '',
       googleVisionApiKey: '',
       serpApiKey: '',
-      isConfigured: getRapidApiFlag() || getServerManagedFlag(),
+      isConfigured: getOpenWebNinjaFlag() || getServerManagedFlag(),
     };
   }
 }
@@ -155,6 +155,7 @@ export function isServerManagedSerpApiEnabled(): boolean {
   return getServerManagedFlag();
 }
 
-export function isServerManagedRapidApiEnabled(): boolean {
-  return getRapidApiFlag();
+export function isOpenWebNinjaEnabled(): boolean {
+  return getOpenWebNinjaFlag();
 }
+

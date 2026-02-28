@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { SERVICE_CATALOG } from '@/lib/provider-registry';
 
-// Maps the first path segment to the correct RapidAPI host
-const SERVICE_HOST_MAP: Record<string, string> = {};
+// Maps the first path segment to the correct OpenWebNinja API base URL
+const SERVICE_URL_MAP: Record<string, string> = {};
 for (const service of SERVICE_CATALOG) {
-  SERVICE_HOST_MAP[service.key] = service.rapidApiHost;
+  SERVICE_URL_MAP[service.key] = service.apiBaseUrl;
 }
 
 export async function GET(
@@ -22,24 +22,24 @@ export async function GET(
   }
 
   const serviceKey = segments[0];
-  const host = SERVICE_HOST_MAP[serviceKey];
-  if (!host) {
+  const baseUrl = SERVICE_URL_MAP[serviceKey];
+  if (!baseUrl) {
     return NextResponse.json(
-      { error: `Unknown service: ${serviceKey}. Valid: ${Object.keys(SERVICE_HOST_MAP).join(', ')}` },
+      { error: `Unknown service: ${serviceKey}. Valid: ${Object.keys(SERVICE_URL_MAP).join(', ')}` },
       { status: 400 }
     );
   }
 
-  const apiKey = (process.env.RAPIDAPI_KEY || '').trim();
+  const apiKey = (process.env.OPENWEBNINJA_API_KEY || '').trim();
   if (!apiKey) {
     return NextResponse.json(
-      { error: 'RAPIDAPI_KEY is not configured on the server.' },
+      { error: 'OPENWEBNINJA_API_KEY is not configured on the server.' },
       { status: 500 }
     );
   }
 
   const endpointPath = '/' + segments.slice(1).join('/');
-  const upstream = new URL(`https://${host}${endpointPath}`);
+  const upstream = new URL(`${baseUrl}${endpointPath}`);
 
   request.nextUrl.searchParams.forEach((value, key) => {
     upstream.searchParams.set(key, value);
@@ -49,8 +49,7 @@ export async function GET(
     const upstreamResponse = await fetch(upstream.toString(), {
       method: 'GET',
       headers: {
-        'x-rapidapi-key': apiKey,
-        'x-rapidapi-host': host,
+        'x-api-key': apiKey,
         Accept: 'application/json',
       },
       cache: 'no-store',

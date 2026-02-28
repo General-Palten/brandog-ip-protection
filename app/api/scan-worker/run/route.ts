@@ -18,7 +18,7 @@ import {
   toSearchCallShape,
 } from '@/lib/provider-openwebninja-reverse-image';
 import { searchProducts, mapProductsToListings } from '@/lib/provider-openwebninja-product-search';
-import { getProductDetails, getSellerProfile, extractAsinFromUrl, extractAmazonCountry } from '@/lib/provider-openwebninja-amazon';
+import { getVisualMatches, mapVisualMatchesToListings, toLensSearchCallShape } from '@/lib/provider-openwebninja-amazon';
 import { scrapeWebsiteContacts } from '@/lib/provider-openwebninja-contacts';
 import { searchSocialLinks } from '@/lib/provider-openwebninja-social';
 import { scoreRevenue, type RevenueScoringOrder } from '@/lib/revenue-scoring';
@@ -53,13 +53,13 @@ const DEFAULT_SCAN_SETTINGS = {
   activeScanProvider: 'openwebninja' as 'serpapi_lens' | 'openwebninja',
   enableReverseImageSearch: true,
   enableProductSearch: false,
-  enableAmazonData: false,
+  enableLensData: false,
   enableWebsiteContacts: false,
   enableSocialLinks: false,
   enableWebUnblocker: false,
   reverseImageSearchCostUsd: 0.0025,
   productSearchCostUsd: 0.0025,
-  amazonDataCostUsd: 0.0025,
+  lensDataCostUsd: 0.0025,
   websiteContactsCostUsd: 0.0025,
   socialLinksCostUsd: 0.0025,
   webUnblockerCostUsd: 0.0005,
@@ -67,7 +67,7 @@ const DEFAULT_SCAN_SETTINGS = {
 
 const PUBLIC_APP_URL = (process.env.NEXT_PUBLIC_APP_URL || process.env.PUBLIC_APP_URL || '').trim();
 const serpApiKey = (process.env.SERPAPI_API_KEY || '').trim();
-const rapidApiKey = (process.env.RAPIDAPI_KEY || '').trim();
+const openWebNinjaApiKey = (process.env.OPENWEBNINJA_API_KEY || '').trim();
 const workerSecret = (process.env.SCAN_WORKER_SECRET || '').trim();
 const openRouterApiKey = (process.env.OPENROUTER_API_KEY || '').trim();
 const envOpenRouterModel = (process.env.OPENROUTER_MODEL || '').trim();
@@ -101,13 +101,13 @@ type ScanSettings = {
   activeScanProvider: 'serpapi_lens' | 'openwebninja';
   enableReverseImageSearch: boolean;
   enableProductSearch: boolean;
-  enableAmazonData: boolean;
+  enableLensData: boolean;
   enableWebsiteContacts: boolean;
   enableSocialLinks: boolean;
   enableWebUnblocker: boolean;
   reverseImageSearchCostUsd: number;
   productSearchCostUsd: number;
-  amazonDataCostUsd: number;
+  lensDataCostUsd: number;
   websiteContactsCostUsd: number;
   socialLinksCostUsd: number;
   webUnblockerCostUsd: number;
@@ -284,13 +284,13 @@ const loadScanSettings = async (brandId: string): Promise<ScanSettings> => {
     activeScanProvider,
     enableReverseImageSearch: data.enable_reverse_image_search ?? DEFAULT_SCAN_SETTINGS.enableReverseImageSearch,
     enableProductSearch: data.enable_product_search ?? DEFAULT_SCAN_SETTINGS.enableProductSearch,
-    enableAmazonData: data.enable_amazon_data ?? DEFAULT_SCAN_SETTINGS.enableAmazonData,
+    enableLensData: data.enable_amazon_data ?? DEFAULT_SCAN_SETTINGS.enableLensData,
     enableWebsiteContacts: data.enable_website_contacts ?? DEFAULT_SCAN_SETTINGS.enableWebsiteContacts,
     enableSocialLinks: data.enable_social_links ?? DEFAULT_SCAN_SETTINGS.enableSocialLinks,
     enableWebUnblocker: data.enable_web_unblocker ?? DEFAULT_SCAN_SETTINGS.enableWebUnblocker,
     reverseImageSearchCostUsd: Number(data.reverse_image_search_cost_usd ?? DEFAULT_SCAN_SETTINGS.reverseImageSearchCostUsd),
     productSearchCostUsd: Number(data.product_search_cost_usd ?? DEFAULT_SCAN_SETTINGS.productSearchCostUsd),
-    amazonDataCostUsd: Number(data.amazon_data_cost_usd ?? DEFAULT_SCAN_SETTINGS.amazonDataCostUsd),
+    lensDataCostUsd: Number(data.amazon_data_cost_usd ?? DEFAULT_SCAN_SETTINGS.lensDataCostUsd),
     websiteContactsCostUsd: Number(data.website_contacts_cost_usd ?? DEFAULT_SCAN_SETTINGS.websiteContactsCostUsd),
     socialLinksCostUsd: Number(data.social_links_cost_usd ?? DEFAULT_SCAN_SETTINGS.socialLinksCostUsd),
     webUnblockerCostUsd: Number(data.web_unblocker_cost_usd ?? DEFAULT_SCAN_SETTINGS.webUnblockerCostUsd),
@@ -519,8 +519,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (!serpApiKey && !rapidApiKey) {
-    return NextResponse.json({ error: 'Missing RAPIDAPI_KEY (or legacy SERPAPI_API_KEY)' }, { status: 500 });
+  if (!serpApiKey && !openWebNinjaApiKey) {
+    return NextResponse.json({ error: 'Missing OPENWEBNINJA_API_KEY (or legacy SERPAPI_API_KEY)' }, { status: 500 });
   }
 
   const supabase: any = getSupabaseService();
@@ -553,7 +553,7 @@ export async function POST(req: NextRequest) {
     const monthlySpend = await loadMonthlySpendUsage(brand.id);
     const whitelistDomains = await loadWhitelistDomains(brand.id);
 
-    const isOpenWebNinja = settings.activeScanProvider === 'openwebninja' && rapidApiKey;
+    const isOpenWebNinja = settings.activeScanProvider === 'openwebninja' && openWebNinjaApiKey;
     const perProviderCallCost = isOpenWebNinja
       ? Math.max(0, settings.reverseImageSearchCostUsd)
       : Math.max(0, settings.serpapiEstimatedCostUsd);
@@ -812,7 +812,7 @@ export async function POST(req: NextRequest) {
 
         if (isOpenWebNinja) {
           // ─── OpenWebNinja path ───
-          const reverseResult = await searchReverseImage(providerUrl, rapidApiKey, 50);
+          const reverseResult = await searchReverseImage(providerUrl, openWebNinjaApiKey, 50);
           const reverseCall = toSearchCallShape(reverseResult, reverseResult.response, providerUrl);
           providerCallsMade += 1;
           providerCalls.push({
@@ -826,11 +826,11 @@ export async function POST(req: NextRequest) {
             let listings = mapReverseImageToListings(reverseResult.response);
 
             // Optional: Product Search enrichment
-            if (settings.enableProductSearch && rapidApiKey && listings.length > 0) {
+            if (settings.enableProductSearch && openWebNinjaApiKey && listings.length > 0) {
               try {
                 const topTitle = listings[0]?.title;
                 if (topTitle) {
-                  const productResult = await searchProducts(topTitle, rapidApiKey, { limit: 10 });
+                  const productResult = await searchProducts(topTitle, openWebNinjaApiKey, { limit: 10 });
                   providerCallsMade += 1;
                   if (productResult.ok && Array.isArray(productResult.response?.data)) {
                     const productListings = mapProductsToListings(productResult.response.data);
@@ -838,6 +838,23 @@ export async function POST(req: NextRequest) {
                   }
                 }
               } catch { /* Product enrichment is best-effort */ }
+            }
+
+            // Optional: Real-Time Lens Data visual matches
+            if (settings.enableLensData && openWebNinjaApiKey) {
+              try {
+                const lensResult = await getVisualMatches(providerUrl, openWebNinjaApiKey);
+                providerCallsMade += 1;
+                const lensCall = toLensSearchCallShape(lensResult, lensResult.data, providerUrl);
+                providerCalls.push({
+                  call: lensCall,
+                  runId: await recordProviderRun(job.brand_id, job.id, lensCall, settings.lensDataCostUsd, OPENWEBNINJA_PROVIDER),
+                });
+                if (lensResult.ok && lensResult.data.length > 0) {
+                  const lensListings = mapVisualMatchesToListings(lensResult.data);
+                  listings = mergeListingsByUrl([...listings, ...lensListings]);
+                }
+              } catch { /* Lens enrichment is best-effort */ }
             }
 
             mergedListings = listings.slice(0, MAX_MATCHES_PER_SCAN);

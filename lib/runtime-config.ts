@@ -9,7 +9,7 @@ export interface RuntimeConfig {
   bypassAuth: boolean;
   bypassRole: 'admin' | 'brand';
   serpApiServerKey: boolean;
-  rapidApiConfigured: boolean;
+  openWebNinjaConfigured: boolean;
 }
 
 // Server-side: read directly from env vars
@@ -18,7 +18,7 @@ export function getServerRuntimeConfig(): RuntimeConfig {
     bypassAuth: process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true',
     bypassRole: process.env.NEXT_PUBLIC_BYPASS_ROLE === 'admin' ? 'admin' : 'brand',
     serpApiServerKey: process.env.NEXT_PUBLIC_SERPAPI_SERVER_KEY === 'true',
-    rapidApiConfigured: process.env.NEXT_PUBLIC_RAPIDAPI_CONFIGURED === 'true',
+    openWebNinjaConfigured: process.env.NEXT_PUBLIC_OPENWEBNINJA_CONFIGURED === 'true',
   };
 }
 
@@ -33,7 +33,7 @@ function getClientRuntimeConfig(): RuntimeConfig {
     bypassAuth: process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true',
     bypassRole: process.env.NEXT_PUBLIC_BYPASS_ROLE === 'admin' ? 'admin' : 'brand',
     serpApiServerKey: process.env.NEXT_PUBLIC_SERPAPI_SERVER_KEY === 'true',
-    rapidApiConfigured: process.env.NEXT_PUBLIC_RAPIDAPI_CONFIGURED === 'true',
+    openWebNinjaConfigured: process.env.NEXT_PUBLIC_OPENWEBNINJA_CONFIGURED === 'true',
   };
 }
 
@@ -59,9 +59,10 @@ export const isSerpApiServerKeyEnabled = (): boolean => {
   return getRuntimeConfig().serpApiServerKey;
 };
 
-export const isRapidApiConfigured = (): boolean => {
-  return getRuntimeConfig().rapidApiConfigured;
+export const isOpenWebNinjaConfigured = (): boolean => {
+  return getRuntimeConfig().openWebNinjaConfigured;
 };
+
 
 export const isSupabaseEnvConfigured = (): boolean => {
   const url = sanitizeEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);

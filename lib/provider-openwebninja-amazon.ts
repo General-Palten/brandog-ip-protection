@@ -1,152 +1,196 @@
-// OpenWebNinja Amazon Data provider.
-// Seller profiles, product details, and reviews from Amazon.
+// OpenWebNinja Real-Time Lens Data provider.
+// Visual matches, object detection, and OCR via Google Lens.
 
 import { callOpenWebNinja } from './openwebninja-client';
+import type { SerpApiListing, SerpApiSearchCall } from './provider-serpapi';
 
-export interface AmazonProductDetails {
-  asin: string;
-  product_title: string;
-  product_price?: string;
-  product_original_price?: string;
-  product_star_rating?: string;
-  product_num_ratings?: number;
-  product_url?: string;
-  product_photo?: string;
-  product_photos?: string[];
-  is_best_seller?: boolean;
-  is_amazon_choice?: boolean;
-  seller_name?: string;
-  seller_id?: string;
-  fulfilled_by_amazon?: boolean;
-  product_availability?: string;
-  product_description?: string;
+export interface LensVisualMatch {
+  position: number;
+  title: string;
+  link: string;
+  source: string;
+  source_icon?: string;
+  thumbnail?: string;
+  thumbnail_width?: number;
+  thumbnail_height?: number;
+  image?: string;
+  image_width?: number;
+  image_height?: number;
 }
 
-export interface AmazonSellerProfile {
-  seller_id: string;
-  seller_name: string;
-  seller_rating?: number;
-  seller_num_ratings?: number;
-  seller_description?: string;
-  seller_country?: string;
-  business_name?: string;
-  business_address?: string;
-}
-
-export interface AmazonProductReview {
-  review_id: string;
-  review_title: string;
-  review_text: string;
-  review_star_rating: string;
-  review_author: string;
-  review_date: string;
-  is_verified_purchase?: boolean;
-}
-
-export async function getProductDetails(
-  asin: string,
-  apiKey: string,
-  country = 'US'
-): Promise<{ data: AmazonProductDetails | null; latencyMs: number; ok: boolean; error?: string }> {
-  const result = await callOpenWebNinja<{ status: string; data: AmazonProductDetails }>({
-    service: 'amazon_data',
-    path: '/product-details',
-    params: { asin, country },
-    apiKey,
-  });
-
-  return {
-    data: result.ok ? result.data?.data || null : null,
-    latencyMs: result.latencyMs,
-    ok: result.ok,
-    error: result.error,
+export interface LensSearchResponse {
+  status: string;
+  request_id: string;
+  parameters: {
+    url: string;
+    language?: string;
+    country?: string;
+  };
+  data: {
+    visual_matches?: LensVisualMatch[];
+    knowledge_graph?: Record<string, unknown>;
   };
 }
 
-export async function getSellerProfile(
-  sellerId: string,
-  apiKey: string,
-  country = 'US'
-): Promise<{ data: AmazonSellerProfile | null; latencyMs: number; ok: boolean; error?: string }> {
-  const result = await callOpenWebNinja<{ status: string; data: AmazonSellerProfile }>({
-    service: 'amazon_data',
-    path: '/seller-profile',
-    params: { seller_id: sellerId, country },
-    apiKey,
-  });
+export interface LensObjectDetection {
+  label: string;
+  box: { left: number; top: number; width: number; height: number };
+}
 
-  return {
-    data: result.ok ? result.data?.data || null : null,
-    latencyMs: result.latencyMs,
-    ok: result.ok,
-    error: result.error,
+export interface LensObjectDetectionResponse {
+  status: string;
+  request_id: string;
+  data: {
+    main_detection?: LensObjectDetection;
+    detections: LensObjectDetection[];
+    detection_count: number;
   };
 }
 
-export async function getProductReviews(
-  asin: string,
+export async function searchLens(
+  imageUrl: string,
   apiKey: string,
-  options?: { country?: string; limit?: number }
-): Promise<{ data: AmazonProductReview[]; latencyMs: number; ok: boolean; error?: string }> {
-  const params: Record<string, string> = { asin };
+  options?: { language?: string; country?: string; query?: string }
+): Promise<{ data: LensSearchResponse | null; latencyMs: number; ok: boolean; error?: string }> {
+  const params: Record<string, string> = { url: imageUrl };
+  if (options?.language) params.language = options.language;
   if (options?.country) params.country = options.country;
-  if (options?.limit) params.limit = String(options.limit);
+  if (options?.query) params.query = options.query;
 
-  const result = await callOpenWebNinja<{ status: string; data: { reviews: AmazonProductReview[] } }>({
-    service: 'amazon_data',
-    path: '/product-reviews',
+  const result = await callOpenWebNinja<LensSearchResponse>({
+    service: 'realtime_lens_data',
+    path: '/search',
     params,
     apiKey,
   });
 
   return {
-    data: result.ok ? result.data?.data?.reviews || [] : [],
+    data: result.ok ? result.data : null,
     latencyMs: result.latencyMs,
     ok: result.ok,
     error: result.error,
   };
 }
 
-/** Extract ASIN from an Amazon URL. Returns null if not an Amazon URL or ASIN not found. */
-export function extractAsinFromUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (!parsed.hostname.includes('amazon')) return null;
+export async function getVisualMatches(
+  imageUrl: string,
+  apiKey: string,
+  options?: { language?: string; country?: string; query?: string }
+): Promise<{ data: LensVisualMatch[]; latencyMs: number; ok: boolean; error?: string }> {
+  const params: Record<string, string> = { url: imageUrl };
+  if (options?.language) params.language = options.language;
+  if (options?.country) params.country = options.country;
+  if (options?.query) params.query = options.query;
 
-    // Patterns: /dp/ASIN, /gp/product/ASIN, /product/ASIN
-    const patterns = [
-      /\/dp\/([A-Z0-9]{10})/i,
-      /\/gp\/product\/([A-Z0-9]{10})/i,
-      /\/product\/([A-Z0-9]{10})/i,
-    ];
+  const result = await callOpenWebNinja<{ status: string; data: LensVisualMatch[] }>({
+    service: 'realtime_lens_data',
+    path: '/visual-matches',
+    params,
+    apiKey,
+  });
 
-    for (const pattern of patterns) {
-      const match = parsed.pathname.match(pattern);
-      if (match) return match[1].toUpperCase();
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
+  return {
+    data: result.ok ? result.data?.data || [] : [],
+    latencyMs: result.latencyMs,
+    ok: result.ok,
+    error: result.error,
+  };
 }
 
-/** Extract Amazon domain country code (US, UK, DE, etc.) */
-export function extractAmazonCountry(url: string): string {
+export async function detectObjects(
+  imageUrl: string,
+  apiKey: string
+): Promise<{ data: LensObjectDetectionResponse | null; latencyMs: number; ok: boolean; error?: string }> {
+  const result = await callOpenWebNinja<LensObjectDetectionResponse>({
+    service: 'realtime_lens_data',
+    path: '/object-detection',
+    params: { url: imageUrl },
+    apiKey,
+  });
+
+  return {
+    data: result.ok ? result.data : null,
+    latencyMs: result.latencyMs,
+    ok: result.ok,
+    error: result.error,
+  };
+}
+
+export async function extractText(
+  imageUrl: string,
+  apiKey: string,
+  language = 'en'
+): Promise<{ data: Record<string, unknown> | null; latencyMs: number; ok: boolean; error?: string }> {
+  const result = await callOpenWebNinja<{ status: string; data: Record<string, unknown> }>({
+    service: 'realtime_lens_data',
+    path: '/ocr',
+    params: { url: imageUrl, language },
+    apiKey,
+  });
+
+  return {
+    data: result.ok ? result.data?.data || null : null,
+    latencyMs: result.latencyMs,
+    ok: result.ok,
+    error: result.error,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Map Lens visual matches → SerpApiListing[] for scan pipeline
+// ---------------------------------------------------------------------------
+
+const normalizeUrl = (value: string | null | undefined): string | undefined => {
+  if (!value) return undefined;
+  const raw = value.trim();
+  if (!raw) return undefined;
+  const withProtocol = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(raw) ? raw : `https://${raw}`;
   try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (host.includes('.co.uk')) return 'UK';
-    if (host.includes('.de')) return 'DE';
-    if (host.includes('.fr')) return 'FR';
-    if (host.includes('.it')) return 'IT';
-    if (host.includes('.es')) return 'ES';
-    if (host.includes('.ca')) return 'CA';
-    if (host.includes('.com.au')) return 'AU';
-    if (host.includes('.co.jp') || host.includes('.jp')) return 'JP';
-    if (host.includes('.in')) return 'IN';
-    if (host.includes('.com.br')) return 'BR';
-    return 'US';
+    return new URL(withProtocol).toString();
   } catch {
-    return 'US';
+    return undefined;
   }
+};
+
+export function mapVisualMatchesToListings(matches: LensVisualMatch[]): SerpApiListing[] {
+  const listings: SerpApiListing[] = [];
+
+  for (const match of matches) {
+    const link = normalizeUrl(match.link);
+    if (!link) continue;
+
+    listings.push({
+      kind: 'visual',
+      link,
+      title: match.title || undefined,
+      source: match.source || undefined,
+      image: normalizeUrl(match.image) || undefined,
+      thumbnail: normalizeUrl(match.thumbnail) || normalizeUrl(match.source_icon) || undefined,
+      confidence: 0.75,
+      position: match.position,
+      raw: match as unknown as Record<string, unknown>,
+    });
+  }
+
+  return listings;
+}
+
+// ---------------------------------------------------------------------------
+// Adapter: produce a SerpApiSearchCall-compatible object for telemetry
+// ---------------------------------------------------------------------------
+
+export function toLensSearchCallShape(
+  result: { ok: boolean; latencyMs: number; error?: string },
+  matches: LensVisualMatch[],
+  imageUrl: string
+): SerpApiSearchCall {
+  return {
+    endpoint: 'openwebninja_lens_visual_matches',
+    ok: result.ok,
+    status: result.ok ? 200 : 0,
+    payload: { matches_count: matches.length, matches } as unknown as Record<string, any>,
+    error: result.error,
+    latencyMs: result.latencyMs,
+    query: { url: imageUrl, service: 'realtime_lens_data' },
+  };
 }
