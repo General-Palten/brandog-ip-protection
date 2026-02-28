@@ -256,10 +256,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return
     }
 
-    // Safety timeout - if INITIAL_SESSION never fires, stop loading
+    // Safety timeout - if INITIAL_SESSION never fires or async work hangs, stop loading
     const timeout = setTimeout(() => {
       if (isMounted && !initialised) {
         console.warn('Auth timeout - forcing loading to false')
+        setBrandsStatus(prev => (prev === 'idle' || prev === 'loading') ? 'error' : prev)
+        setBrandsError(prev => prev || 'Loading timed out. Please try again.')
         setLoading(false)
         initialised = true
       }
@@ -276,6 +278,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setSession(session)
         setUser(session?.user ?? null)
 
+        // Stop the initial loading spinner as soon as we know the auth state.
+        // Brand loading is now tracked separately via brandsStatus.
+        if (isMounted && !initialised) {
+          clearTimeout(timeout)
+          setLoading(false)
+          initialised = true
+        }
+
         if (session?.user) {
           try {
             const userProfile = await fetchProfile(
@@ -290,6 +300,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           } catch (err) {
             if (isMounted && mySeq === authSeqRef.current) {
               console.error('Error during auth state change:', err)
+              setBrandsStatus(prev => prev === 'idle' ? 'error' : prev)
+              setBrandsError(prev => prev || 'Failed to initialize session')
             }
           }
         } else {
@@ -298,12 +310,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setBrandsStatus('idle')
           setBrandsError(null)
           setCurrentBrandId(null)
-        }
-
-        if (isMounted && !initialised) {
-          clearTimeout(timeout)
-          setLoading(false)
-          initialised = true
         }
       }
     )
