@@ -63,7 +63,7 @@ const parseProvider = (value: unknown): ImageSearchProvider | null => {
 
 export function getVisionConfig(): VisionConfig {
   const serverManaged = getServerManagedFlag();
-  const rapidApiConfigured = getOpenWebNinjaFlag();
+  const openWebNinjaConfigured = getOpenWebNinjaFlag();
   const defaultProvider = getDefaultProvider();
 
   try {
@@ -74,7 +74,7 @@ export function getVisionConfig(): VisionConfig {
         apiKey: '',
         googleVisionApiKey: '',
         serpApiKey: '',
-        isConfigured: rapidApiConfigured || serverManaged,
+        isConfigured: openWebNinjaConfigured || serverManaged,
       };
     }
 
@@ -85,7 +85,8 @@ export function getVisionConfig(): VisionConfig {
       serpApiKey?: string;
     };
 
-    const provider = parseProvider(parsed.provider) || defaultProvider;
+    // If OpenWebNinja is server-configured, always prefer it regardless of stale localStorage
+    const provider = openWebNinjaConfigured ? 'openwebninja' as ImageSearchProvider : (parseProvider(parsed.provider) || defaultProvider);
     // Legacy migration: older builds only stored `apiKey`.
     const legacyKey = typeof parsed.apiKey === 'string' ? parsed.apiKey : '';
     const googleVisionApiKey = (parsed.googleVisionApiKey || legacyKey || '').trim();
