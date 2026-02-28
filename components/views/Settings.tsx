@@ -10,13 +10,7 @@ import {
   Users, ChevronDown, ChevronUp, Search, Calendar, AlertTriangle,
   FileText, Type, Zap, X, Phone, Mail, Plug
 } from 'lucide-react';
-import {
-  getVisionConfig,
-  saveVisionProvider,
-  isServerManagedSerpApiEnabled,
-  isServerManagedRapidApiEnabled,
-  type ImageSearchProvider,
-} from '../../lib/api-config';
+import { isServerManagedRapidApiEnabled } from '../../lib/api-config';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import {
   JOB_TITLES, BRAND_ROLES, DASHBOARD_VIEWS, DATE_FORMATS, TIMEZONES,
@@ -156,17 +150,13 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
   const [accountLockdown, setAccountLockdown] = useState(false);
 
   // Integrations state
-  const [activeProvider, setActiveProvider] = useState<ImageSearchProvider>(() => getVisionConfig().provider);
-  const serpApiServerManaged = isServerManagedSerpApiEnabled();
-  const rapidApiServerManaged = isServerManagedRapidApiEnabled();
-
   const SERVICE_TOGGLES = [
-    { key: 'enable_reverse_image_search', label: 'Reverse Image Search', desc: 'Core image detection — finds where your images appear online', cost: '$0.0025', defaultOn: true },
-    { key: 'enable_product_search', label: 'Product Search', desc: 'Enrich results with pricing, seller, and product data', cost: '$0.0025', defaultOn: false },
-    { key: 'enable_amazon_data', label: 'Amazon Data', desc: 'Fetch ASIN details, seller profiles, and reviews for Amazon listings', cost: '$0.0025', defaultOn: false },
-    { key: 'enable_website_contacts', label: 'Website Contacts', desc: 'Scrape emails, phone numbers, and social links from seller sites', cost: '$0.0025', defaultOn: false },
-    { key: 'enable_social_links', label: 'Social Links', desc: 'Find social media profiles associated with infringing sellers', cost: '$0.0025', defaultOn: false },
-    { key: 'enable_web_unblocker', label: 'Web Unblocker', desc: 'Fetch protected/JS-heavy pages to check if listings are still active', cost: '$0.0005', defaultOn: false },
+    { key: 'enable_reverse_image_search', label: 'Reverse Image Search', desc: 'Core detection engine — finds where your protected images appear across the web', cost: 0.0025, defaultOn: true, endpoint: 'reverse-image-search' },
+    { key: 'enable_product_search', label: 'Product Search', desc: 'Enrich detected listings with pricing, seller, and product metadata', cost: 0.0025, defaultOn: false, endpoint: 'product-search' },
+    { key: 'enable_amazon_data', label: 'Amazon Data', desc: 'Fetch ASIN details, seller profiles, and review data for Amazon listings', cost: 0.0025, defaultOn: false, endpoint: 'amazon' },
+    { key: 'enable_website_contacts', label: 'Website Contacts', desc: 'Extract emails, phone numbers, and social links from infringing seller sites', cost: 0.0025, defaultOn: false, endpoint: 'website-contacts' },
+    { key: 'enable_social_links', label: 'Social Links', desc: 'Discover social media profiles associated with infringing sellers', cost: 0.0025, defaultOn: false, endpoint: 'social-links' },
+    { key: 'enable_web_unblocker', label: 'Web Unblocker', desc: 'Access protected and JS-heavy pages to verify if listings are still active', cost: 0.0005, defaultOn: false, endpoint: 'web-unblocker' },
   ] as const;
 
   type ToggleKey = typeof SERVICE_TOGGLES[number]['key'];
@@ -177,6 +167,12 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
   });
   const [togglesLoading, setTogglesLoading] = useState(true);
   const [togglesSaving, setTogglesSaving] = useState<ToggleKey | null>(null);
+
+  // Usage stats
+  interface ServiceUsageRow { endpoint: string; calls: number; cost: number; }
+  const [serviceUsage, setServiceUsage] = useState<ServiceUsageRow[]>([]);
+  const [usageLoading, setUsageLoading] = useState(true);
+  const [usagePeriod, setUsagePeriod] = useState<'7' | '30' | '90'>('30');
 
   // Load service toggles from scan_settings
   useEffect(() => {
@@ -206,6 +202,48 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
     })();
   }, [currentBrand?.id]);
 
+  // Load usage stats from provider_search_runs
+  useEffect(() => {
+    if (!currentBrand?.id || !isSupabaseConfigured()) {
+      setUsageLoading(false);
+      return;
+    }
+    (async () => {
+      setUsageLoading(true);
+      try {
+        const since = new Date();
+        since.setDate(since.getDate() - Number(usagePeriod));
+        const { data } = await (supabase as any)
+          .from('provider_search_runs')
+          .select('endpoint, estimated_cost_usd')
+          .eq('brand_id', currentBrand.id)
+          .gte('created_at', since.toISOString());
+        if (data && data.length > 0) {
+          const byEndpoint: Record<string, { calls: number; cost: number }> = {};
+          for (const row of data) {
+            const ep = (row.endpoint || 'unknown').toString();
+            if (!byEndpoint[ep]) byEndpoint[ep] = { calls: 0, cost: 0 };
+            byEndpoint[ep].calls += 1;
+            byEndpoint[ep].cost += Number(row.estimated_cost_usd || 0);
+          }
+          setServiceUsage(
+            Object.entries(byEndpoint).map(([endpoint, stats]) => ({
+              endpoint,
+              calls: stats.calls,
+              cost: Number(stats.cost.toFixed(4)),
+            })).sort((a, b) => b.calls - a.calls)
+          );
+        } else {
+          setServiceUsage([]);
+        }
+      } catch { setServiceUsage([]); }
+      setUsageLoading(false);
+    })();
+  }, [currentBrand?.id, usagePeriod]);
+
+  const totalUsageCalls = serviceUsage.reduce((s, r) => s + r.calls, 0);
+  const totalUsageCost = serviceUsage.reduce((s, r) => s + r.cost, 0);
+
   const handleToggleService = async (key: ToggleKey, enabled: boolean) => {
     if (!currentBrand?.id || !isSupabaseConfigured()) {
       addNotification('error', 'No brand selected or Supabase not configured');
@@ -230,12 +268,6 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
       addNotification('error', 'Failed to update setting');
     }
     setTogglesSaving(null);
-  };
-
-  const handleProviderChange = (provider: ImageSearchProvider) => {
-    setActiveProvider(provider);
-    saveVisionProvider(provider);
-    addNotification('success', `Switched search provider to ${provider === 'openwebninja' ? 'OpenWebNinja' : provider === 'serpapi_lens' ? 'SerpApi Google Lens' : 'Google Vision'}`);
   };
 
   // Plan state
@@ -1035,97 +1067,89 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
             {/* INTEGRATIONS SECTION */}
             {activeSection === 'integrations' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                    <BentoCard title="Image Search Provider">
-                        <div className="mt-4 space-y-4">
-                            <p className="text-xs text-secondary">
-                                Select the reverse image search provider used for automated scans and manual searches.
-                            </p>
-                            <div className="space-y-3">
-                                {/* OpenWebNinja */}
-                                <button
-                                    onClick={() => handleProviderChange('openwebninja')}
-                                    disabled={!rapidApiServerManaged}
-                                    className={`w-full text-left p-4 border rounded-lg transition-colors ${
-                                        activeProvider === 'openwebninja'
-                                            ? 'border-primary bg-primary/5'
-                                            : 'border-border hover:border-primary/30'
-                                    } ${!rapidApiServerManaged ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    {/* Usage Overview */}
+                    <BentoCard title="Usage Overview">
+                        <div className="mt-4">
+                            <div className="flex items-center justify-between mb-4">
+                                <p className="text-xs text-secondary">API calls and estimated spend across all services.</p>
+                                <select
+                                    value={usagePeriod}
+                                    onChange={(e) => setUsagePeriod(e.target.value as '7' | '30' | '90')}
+                                    className="px-2 py-1 bg-background border border-border rounded text-xs text-primary focus:border-primary outline-none"
                                 >
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <p className="text-sm font-medium text-primary">OpenWebNinja</p>
-                                            <p className="text-xs text-secondary mt-0.5">Reverse Image Search via RapidAPI &mdash; ~$0.005/scan</p>
-                                        </div>
-                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                                            activeProvider === 'openwebninja' ? 'border-primary' : 'border-border'
-                                        }`}>
-                                            {activeProvider === 'openwebninja' && <div className="w-2 h-2 rounded-full bg-primary" />}
-                                        </div>
-                                    </div>
-                                    {!rapidApiServerManaged && (
-                                        <p className="text-[10px] text-amber-500 mt-2">
-                                            Set RAPIDAPI_KEY and NEXT_PUBLIC_RAPIDAPI_CONFIGURED=true in your environment to enable.
-                                        </p>
-                                    )}
-                                </button>
-
-                                {/* SerpApi Google Lens */}
-                                <button
-                                    onClick={() => handleProviderChange('serpapi_lens')}
-                                    disabled={!serpApiServerManaged}
-                                    className={`w-full text-left p-4 border rounded-lg transition-colors ${
-                                        activeProvider === 'serpapi_lens'
-                                            ? 'border-primary bg-primary/5'
-                                            : 'border-border hover:border-primary/30'
-                                    } ${!serpApiServerManaged ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <p className="text-sm font-medium text-primary">SerpApi Google Lens</p>
-                                            <p className="text-xs text-secondary mt-0.5">Legacy provider &mdash; ~$0.03/scan (3 calls)</p>
-                                        </div>
-                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                                            activeProvider === 'serpapi_lens' ? 'border-primary' : 'border-border'
-                                        }`}>
-                                            {activeProvider === 'serpapi_lens' && <div className="w-2 h-2 rounded-full bg-primary" />}
-                                        </div>
-                                    </div>
-                                    {!serpApiServerManaged && (
-                                        <p className="text-[10px] text-amber-500 mt-2">
-                                            Set SERPAPI_API_KEY and NEXT_PUBLIC_SERPAPI_SERVER_KEY=true in your environment to enable.
-                                        </p>
-                                    )}
-                                </button>
-
-                                {/* Google Vision */}
-                                <button
-                                    onClick={() => handleProviderChange('google_vision')}
-                                    className={`w-full text-left p-4 border rounded-lg transition-colors ${
-                                        activeProvider === 'google_vision'
-                                            ? 'border-primary bg-primary/5'
-                                            : 'border-border hover:border-primary/30'
-                                    }`}
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <p className="text-sm font-medium text-primary">Google Vision API</p>
-                                            <p className="text-xs text-secondary mt-0.5">Client-side API key required &mdash; ~$0.0015/scan</p>
-                                        </div>
-                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                                            activeProvider === 'google_vision' ? 'border-primary' : 'border-border'
-                                        }`}>
-                                            {activeProvider === 'google_vision' && <div className="w-2 h-2 rounded-full bg-primary" />}
-                                        </div>
-                                    </div>
-                                </button>
+                                    <option value="7">Last 7 days</option>
+                                    <option value="30">Last 30 days</option>
+                                    <option value="90">Last 90 days</option>
+                                </select>
                             </div>
+
+                            {usageLoading ? (
+                                <div className="flex items-center justify-center py-6 text-secondary">
+                                    <Loader2 className="animate-spin mr-2" size={16} />
+                                    <span className="text-sm">Loading usage data...</span>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* Summary row */}
+                                    <div className="grid grid-cols-2 gap-4 mb-5">
+                                        <div className="p-3 bg-surface border border-border rounded-lg">
+                                            <p className="text-[10px] text-secondary uppercase tracking-wider">Total Calls</p>
+                                            <p className="text-xl font-mono font-semibold text-primary mt-1">
+                                                {totalUsageCalls.toLocaleString()}
+                                            </p>
+                                        </div>
+                                        <div className="p-3 bg-surface border border-border rounded-lg">
+                                            <p className="text-[10px] text-secondary uppercase tracking-wider">Estimated Spend</p>
+                                            <p className="text-xl font-mono font-semibold text-primary mt-1">
+                                                ${totalUsageCost.toFixed(2)}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Per-service breakdown */}
+                                    {serviceUsage.length > 0 ? (
+                                        <div className="space-y-2">
+                                            <p className="text-[10px] text-secondary uppercase tracking-wider mb-2">By Service</p>
+                                            {serviceUsage.map((row) => {
+                                                const pct = totalUsageCalls > 0 ? (row.calls / totalUsageCalls) * 100 : 0;
+                                                // Match endpoint to a friendly label
+                                                const match = SERVICE_TOGGLES.find(s => row.endpoint.includes(s.endpoint));
+                                                const label = match?.label || row.endpoint;
+                                                return (
+                                                    <div key={row.endpoint} className="flex items-center gap-3">
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <span className="text-xs font-medium text-primary truncate">{label}</span>
+                                                                <span className="text-xs text-secondary font-mono shrink-0 ml-2">
+                                                                    {row.calls.toLocaleString()} calls &middot; ${row.cost.toFixed(2)}
+                                                                </span>
+                                                            </div>
+                                                            <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
+                                                                <div
+                                                                    className="h-full bg-primary rounded-full transition-all"
+                                                                    style={{ width: `${Math.max(2, pct)}%` }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-secondary text-center py-4">
+                                            No API calls recorded in this period.
+                                        </p>
+                                    )}
+                                </>
+                            )}
                         </div>
                     </BentoCard>
 
-                    <BentoCard title="OpenWebNinja Services">
+                    {/* Service Toggles */}
+                    <BentoCard title="Services">
                         <div className="mt-4 space-y-1">
                             <p className="text-xs text-secondary mb-4">
-                                Enrichment services run automatically during scans when enabled. Each service adds a small cost per API call.
+                                Enable or disable detection and enrichment services. Changes take effect on the next scan.
                             </p>
                             {togglesLoading ? (
                                 <div className="flex items-center justify-center py-8 text-secondary">
@@ -1133,53 +1157,41 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                     <span className="text-sm">Loading service settings...</span>
                                 </div>
                             ) : (
-                                SERVICE_TOGGLES.map((svc) => (
-                                    <div key={svc.key} className="flex items-center justify-between py-3 border-b border-border last:border-0">
-                                        <div className="flex-1 min-w-0 mr-4">
-                                            <div className="flex items-center gap-2">
-                                                <p className="text-sm font-medium text-primary">{svc.label}</p>
-                                                <span className="text-[10px] font-mono text-secondary bg-surface px-1.5 py-0.5 border border-border rounded shrink-0">
-                                                    {svc.cost}/call
-                                                </span>
+                                SERVICE_TOGGLES.map((svc) => {
+                                    const usageRow = serviceUsage.find(u => u.endpoint.includes(svc.endpoint));
+                                    return (
+                                        <div key={svc.key} className="flex items-center justify-between py-3 border-b border-border last:border-0">
+                                            <div className="flex-1 min-w-0 mr-4">
+                                                <div className="flex items-center gap-2">
+                                                    <p className="text-sm font-medium text-primary">{svc.label}</p>
+                                                    <span className="text-[10px] font-mono text-secondary bg-surface px-1.5 py-0.5 border border-border rounded shrink-0">
+                                                        ${svc.cost}/call
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-secondary mt-0.5">{svc.desc}</p>
+                                                {usageRow && (
+                                                    <p className="text-[10px] text-secondary mt-1 font-mono">
+                                                        {usageRow.calls.toLocaleString()} calls &middot; ${usageRow.cost.toFixed(2)} in last {usagePeriod}d
+                                                    </p>
+                                                )}
                                             </div>
-                                            <p className="text-xs text-secondary mt-0.5">{svc.desc}</p>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                {togglesSaving === svc.key && <Loader2 className="animate-spin text-secondary" size={14} />}
+                                                <Toggle
+                                                    enabled={serviceToggles[svc.key]}
+                                                    onChange={(val) => handleToggleService(svc.key, val)}
+                                                    size="sm"
+                                                />
+                                            </div>
                                         </div>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                            {togglesSaving === svc.key && <Loader2 className="animate-spin text-secondary" size={14} />}
-                                            <Toggle
-                                                enabled={serviceToggles[svc.key]}
-                                                onChange={(val) => handleToggleService(svc.key, val)}
-                                                size="sm"
-                                            />
-                                        </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                             {!currentBrand && !togglesLoading && (
                                 <p className="text-xs text-amber-500 mt-2">
                                     No brand selected. Sign in and select a brand to manage service toggles.
                                 </p>
                             )}
-                        </div>
-                    </BentoCard>
-
-                    <BentoCard title="Environment Status">
-                        <div className="mt-4 space-y-3">
-                            {[
-                                { label: 'RAPIDAPI_KEY', configured: rapidApiServerManaged },
-                                { label: 'SERPAPI_API_KEY', configured: serpApiServerManaged },
-                            ].map((env) => (
-                                <div key={env.label} className="flex items-center justify-between py-2">
-                                    <span className="text-sm font-mono text-primary">{env.label}</span>
-                                    <span className={`text-xs px-2 py-0.5 rounded ${
-                                        env.configured
-                                            ? 'bg-green-500/10 text-green-500 border border-green-500/20'
-                                            : 'bg-red-500/10 text-red-500 border border-red-500/20'
-                                    }`}>
-                                        {env.configured ? 'Configured' : 'Not set'}
-                                    </span>
-                                </div>
-                            ))}
                         </div>
                     </BentoCard>
                 </div>
