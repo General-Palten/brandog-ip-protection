@@ -10,6 +10,22 @@ if (typeof window !== 'undefined' && (!supabaseUrl || !supabaseAnonKey || !hasVa
   console.warn('Missing Supabase environment variables. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local')
 }
 
+// Bypass navigator.locks for the auth session lock.
+// The @supabase/ssr browser client uses navigator.locks internally to prevent
+// concurrent token refreshes across tabs. However, the lock acquisition uses an
+// AbortController that gets aborted during React lifecycle transitions (strict
+// mode, HMR, fast remounts), which permanently breaks ALL Supabase requests
+// with "AbortError: signal is aborted without reason".
+// Using a simple in-memory lock is safe for a singleton client in a single tab
+// and avoids the navigator.locks AbortController issue entirely.
+const navigatorLockFallback = async <R,>(
+  _name: string,
+  _acquireTimeout: number,
+  fn: () => Promise<R>
+): Promise<R> => {
+  return fn()
+}
+
 let browserClient: SupabaseClient<any> | null = null
 
 const createPlaceholderClient = (): SupabaseClient<any> =>
@@ -25,7 +41,11 @@ export const supabase = (() => {
     return browserClient
   }
 
-  browserClient = createBrowserClient<any>(supabaseUrl, supabaseAnonKey)
+  browserClient = createBrowserClient<any>(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      lock: navigatorLockFallback,
+    },
+  })
   return browserClient
 })()
 
