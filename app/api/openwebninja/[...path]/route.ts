@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { SERVICE_CATALOG } from '@/lib/provider-registry';
+import { createSupabaseServerClient } from '@/lib/supabase-server';
 
 // Maps the first path segment to the correct OpenWebNinja API base URL
 const SERVICE_URL_MAP: Record<string, string> = {};
@@ -11,6 +12,12 @@ export async function GET(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> }
 ) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+
   const { path } = await context.params;
   const segments = path || [];
 

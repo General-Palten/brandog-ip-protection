@@ -188,7 +188,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             return null
           }
 
-          console.log('Profile created successfully:', newProfile)
           return {
             id: newProfile.id,
             email: newProfile.email,

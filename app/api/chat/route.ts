@@ -1,5 +1,6 @@
 import { OpenRouter } from '@openrouter/sdk';
 import { NextResponse, type NextRequest } from 'next/server';
+import { createSupabaseServerClient } from '@/lib/supabase-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -266,6 +267,12 @@ const buildContextSummary = (context: DashboardChatContext | null): string => {
 };
 
 export async function POST(request: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+
   const apiKey = (process.env.OPENROUTER_API_KEY || '').trim();
   if (!apiKey) {
     return NextResponse.json(

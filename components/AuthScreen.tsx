@@ -1,8 +1,15 @@
-import React, { useState } from 'react'
-import { Shield, Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle } from 'lucide-react'
+import React, { useState, useMemo } from 'react'
+import { Shield, Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle, Check, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 type AuthMode = 'login' | 'signup' | 'forgot-password'
+
+const PASSWORD_RULES = [
+  { label: 'At least 8 characters', test: (pw: string) => pw.length >= 8 },
+  { label: 'One uppercase letter', test: (pw: string) => /[A-Z]/.test(pw) },
+  { label: 'One lowercase letter', test: (pw: string) => /[a-z]/.test(pw) },
+  { label: 'One digit', test: (pw: string) => /\d/.test(pw) },
+] as const
 
 const mapFriendlyAuthError = (message: string, mode: AuthMode): string => {
   const raw = (message || '').trim()
@@ -21,7 +28,7 @@ const mapFriendlyAuthError = (message: string, mode: AuthMode): string => {
   }
 
   if (lower.includes('password should be at least')) {
-    return 'Password must be at least 6 characters.'
+    return 'Password must be at least 8 characters with uppercase, lowercase, and a digit.'
   }
 
   if (mode === 'login' && !raw) {
@@ -37,10 +44,17 @@ const AuthScreen: React.FC = () => {
   const [mode, setMode] = useState<AuthMode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const passwordValidation = useMemo(
+    () => PASSWORD_RULES.map((rule) => ({ ...rule, passed: rule.test(password) })),
+    [password]
+  )
+  const allPasswordRulesPassed = passwordValidation.every((r) => r.passed)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -48,20 +62,26 @@ const AuthScreen: React.FC = () => {
     setSuccess('')
     setLoading(true)
 
-    console.log('Form submitted, mode:', mode)
-
     try {
       const normalizedEmail = email.trim().toLowerCase()
       if (mode === 'login') {
-        console.log('Attempting sign in with:', email)
         const { error } = await signIn(normalizedEmail, password)
-        console.log('Sign in result:', error ? error.message : 'Success')
         if (error) {
           setError(mapFriendlyAuthError(error.message, mode))
         }
       } else if (mode === 'signup') {
         if (!fullName.trim()) {
           setError('Please enter your full name')
+          setLoading(false)
+          return
+        }
+        if (!allPasswordRulesPassed) {
+          setError('Password does not meet the requirements')
+          setLoading(false)
+          return
+        }
+        if (password !== confirmPassword) {
+          setError('Passwords do not match')
           setLoading(false)
           return
         }
@@ -217,11 +237,43 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key`}
                     placeholder="••••••••"
                     className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-lg text-primary placeholder:text-secondary/50 focus:outline-none focus:border-primary/50 transition-colors"
                     required
-                    minLength={6}
+                    minLength={mode === 'signup' ? 8 : 6}
                   />
                 </div>
-                {mode === 'signup' && (
-                  <p className="text-xs text-secondary mt-1">Must be at least 6 characters</p>
+                {mode === 'signup' && password.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {passwordValidation.map((rule) => (
+                      <li key={rule.label} className="flex items-center gap-1.5 text-xs">
+                        {rule.passed ? (
+                          <Check className="text-green-500 shrink-0" size={14} />
+                        ) : (
+                          <X className="text-red-400 shrink-0" size={14} />
+                        )}
+                        <span className={rule.passed ? 'text-green-500' : 'text-secondary'}>{rule.label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {/* Confirm Password (signup only) */}
+            {mode === 'signup' && (
+              <div>
+                <label className="block text-sm text-secondary mb-1.5">Confirm Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" size={18} />
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-lg text-primary placeholder:text-secondary/50 focus:outline-none focus:border-primary/50 transition-colors"
+                    required
+                  />
+                </div>
+                {confirmPassword.length > 0 && password !== confirmPassword && (
+                  <p className="text-xs text-red-400 mt-1">Passwords do not match</p>
                 )}
               </div>
             )}
