@@ -91,10 +91,13 @@ const mapCreateBrandErrorMessage = (message?: string): string => {
 
 const isAbortLikeError = (error: unknown): boolean => {
   if (!error) return false
-  const maybeError = error as { name?: string; message?: string }
+  const maybeError = error as { name?: string; message?: string; code?: string }
   const message = (maybeError.message || '').toLowerCase()
-  return maybeError.name === 'AbortError' || message.includes('aborted')
+  const code = (maybeError.code || '').toLowerCase()
+  return maybeError.name === 'AbortError' || message.includes('aborted') || code.includes('aborted')
 }
+
+const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
 const BRAND_DB_TIMEOUT_MS = 30000
 
@@ -137,8 +140,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const isConfigured = isSupabaseConfigured()
   const bypassAuth = isBypassAuthEnabled()
 
-  // Fetch user profile from database, create if doesn't exist
-  const fetchProfile = useCallback(async (userId: string, userEmail?: string, userFullName?: string): Promise<AuthProfile | null> => {
+  // Fetch user profile from database, create if doesn't exist.
+  // Retries once on transient abort errors (caused by @supabase/ssr lock contention).
+  const fetchProfile = useCallback(async (userId: string, userEmail?: string, userFullName?: string, _retry = 0): Promise<AuthProfile | null> => {
     if (!isConfigured) return null
 
     try {
@@ -149,6 +153,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .single()
 
       if (error) {
+        // Transient abort — retry once after a short delay
+        if (isAbortLikeError(error) && _retry < 1) {
+          console.log('Profile fetch aborted, retrying...', error.message)
+          await delay(1000)
+          return fetchProfile(userId, userEmail, userFullName, _retry + 1)
+        }
+
         console.log('Profile fetch error:', error.code, error.message)
         // Profile doesn't exist - create one
         if (error.code === 'PGRST116') {
@@ -193,14 +204,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     } catch (error) {
       if (isAbortLikeError(error)) {
+        if (_retry < 1) {
+          console.log('Profile fetch threw abort, retrying...')
+          await delay(1000)
+          return fetchProfile(userId, userEmail, userFullName, _retry + 1)
+        }
         return null
       }
       throw error
     }
   }, [isConfigured])
 
-  // Fetch user's brands
-  const fetchBrands = useCallback(async (userId: string) => {
+  // Fetch user's brands.
+  // Retries once on transient abort errors (caused by @supabase/ssr lock contention).
+  const fetchBrands = useCallback(async (userId: string, _retry = 0) => {
     if (!isConfigured) return
 
     setBrandsStatus('loading')
@@ -214,6 +231,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .order('created_at', { ascending: false })
 
       if (error) {
+        // Transient abort — retry once after a short delay
+        if (isAbortLikeError(error) && _retry < 1) {
+          console.log('Brands fetch aborted, retrying...', error.message)
+          await delay(1500)
+          return fetchBrands(userId, _retry + 1)
+        }
+
         console.error('Error fetching brands:', error)
         setBrandsStatus('error')
         setBrandsError(error.message || 'Failed to load brands')
@@ -230,6 +254,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     } catch (error) {
       if (isAbortLikeError(error)) {
+        if (_retry < 1) {
+          console.log('Brands fetch threw abort, retrying...')
+          await delay(1500)
+          return fetchBrands(userId, _retry + 1)
+        }
+        // Exhausted retries — surface error so the user can manually retry
+        setBrandsStatus('error')
+        setBrandsError('Connection interrupted. Please try again.')
         return
       }
       const msg = error instanceof Error ? error.message : 'Failed to load brands'
@@ -355,7 +387,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return { error }
   }
 
-  // Sign out
+  // Sign out — always clear local state even if the server call fails (e.g. AbortError)
   const signOut = async () => {
     console.log('Sign out clicked')
     if (!isConfigured) return
@@ -367,6 +399,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } else {
         console.log('Sign out successful')
       }
+    } catch (err) {
+      console.error('Sign out exception:', err)
+    } finally {
       setUser(null)
       setSession(null)
       setProfile(null)
@@ -374,8 +409,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setBrandsStatus('idle')
       setBrandsError(null)
       setCurrentBrandId(null)
-    } catch (err) {
-      console.error('Sign out exception:', err)
     }
   }
 
