@@ -21,6 +21,7 @@ import {
   PlanTier, PlanUsage, SessionInfo, TeamMember, AuditLogEntry, AuditLogActionType, AuditLogLevel
 } from '../../types';
 import { uploadAvatar, getAvatarUrl } from '../../lib/storage';
+import { loadPlanUsage } from '../../lib/plan-usage';
 
 interface SettingsProps {
   initialSection?: string;
@@ -275,20 +276,23 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
   // Plan state
   const [currentPlan] = useState<PlanTier>('pro');
   const [planComparisonOpen, setPlanComparisonOpen] = useState(false);
-  const [planUsage] = useState<PlanUsage>({
-    scansUsed: 847,
-    scansLimit: 1000,
-    keywordsMonitored: 12,
-    keywordsLimit: 50,
-    assetsProtected: 45,
-    assetsLimit: 100,
-    teamSeats: 4,
-    teamSeatsLimit: 10,
-    apiCalls: 2500,
-    apiCallsLimit: 5000,
-    storageUsedGB: 2.4,
-    storageLimitGB: 10,
-  });
+  const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
+  const [planUsageLoading, setPlanUsageLoading] = useState(false);
+
+  useEffect(() => {
+    if (!currentBrand?.id || !isSupabaseConfigured()) return;
+    let cancelled = false;
+    setPlanUsageLoading(true);
+    loadPlanUsage(supabase, currentBrand.id).then(usage => {
+      if (!cancelled) {
+        setPlanUsage(usage);
+        setPlanUsageLoading(false);
+      }
+    }).catch(() => {
+      if (!cancelled) setPlanUsageLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [currentBrand?.id]);
   const [rolloutPolicy, setRolloutPolicy] = useState<RolloutPolicyState>(DEFAULT_ROLLOUT_POLICY);
   const [rolloutReviewInput, setRolloutReviewInput] = useState('');
 
@@ -1237,6 +1241,12 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                     </BentoCard>
 
                     <BentoCard title="Usage Metrics">
+                        {planUsageLoading || !planUsage ? (
+                            <div className="mt-4 flex items-center justify-center py-8">
+                                <Loader2 className="w-5 h-5 animate-spin text-secondary" />
+                                <span className="ml-2 text-sm text-secondary">Loading usage data…</span>
+                            </div>
+                        ) : (
                         <div className="mt-4 space-y-4">
                             <UsageBar
                                 label="Scans Used"
@@ -1270,6 +1280,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                                 unit=" GB"
                             />
                         </div>
+                        )}
                     </BentoCard>
 
                     <BentoCard title="Plan Comparison">

@@ -348,6 +348,12 @@ export interface Database {
           openrouter_max_tokens: number
           max_provider_calls_per_scan: number
           max_spend_usd_per_month: number
+          max_scans_per_month: number
+          max_assets: number
+          max_keywords: number
+          max_team_seats: number
+          max_api_calls_per_month: number
+          max_storage_bytes: number
           created_at: string
           updated_at: string
         }
@@ -371,6 +377,12 @@ export interface Database {
           openrouter_max_tokens?: number
           max_provider_calls_per_scan?: number
           max_spend_usd_per_month?: number
+          max_scans_per_month?: number
+          max_assets?: number
+          max_keywords?: number
+          max_team_seats?: number
+          max_api_calls_per_month?: number
+          max_storage_bytes?: number
           created_at?: string
           updated_at?: string
         }
@@ -394,6 +406,12 @@ export interface Database {
           openrouter_max_tokens?: number
           max_provider_calls_per_scan?: number
           max_spend_usd_per_month?: number
+          max_scans_per_month?: number
+          max_assets?: number
+          max_keywords?: number
+          max_team_seats?: number
+          max_api_calls_per_month?: number
+          max_storage_bytes?: number
           created_at?: string
           updated_at?: string
         }
@@ -886,6 +904,35 @@ export interface Database {
           updated_at?: string
         }
       }
+      brand_members: {
+        Row: {
+          id: string
+          brand_id: string
+          user_id: string
+          role: 'owner' | 'admin' | 'member' | 'viewer'
+          invited_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          user_id: string
+          role?: 'owner' | 'admin' | 'member' | 'viewer'
+          invited_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          user_id?: string
+          role?: 'owner' | 'admin' | 'member' | 'viewer'
+          invited_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never
@@ -952,6 +999,7 @@ export type Whitelist = Database['public']['Tables']['whitelist']['Row']
 export type IPDocument = Database['public']['Tables']['ip_documents']['Row']
 export type ActivityLog = Database['public']['Tables']['activity_logs']['Row']
 export type ApiConfig = Database['public']['Tables']['api_configs']['Row']
+export type BrandMember = Database['public']['Tables']['brand_members']['Row']
 
 // Insert types
 export type ProfileInsert = Database['public']['Tables']['profiles']['Insert']
@@ -972,3 +1020,4 @@ export type KeywordInsert = Database['public']['Tables']['keywords']['Insert']
 export type WhitelistInsert = Database['public']['Tables']['whitelist']['Insert']
 export type IPDocumentInsert = Database['public']['Tables']['ip_documents']['Insert']
 export type ActivityLogInsert = Database['public']['Tables']['activity_logs']['Insert']
+export type BrandMemberInsert = Database['public']['Tables']['brand_members']['Insert']

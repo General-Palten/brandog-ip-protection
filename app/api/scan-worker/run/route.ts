@@ -50,6 +50,8 @@ const DEFAULT_SCAN_SETTINGS = {
   openrouterMaxTokens: 500,
   maxProviderCallsPerScan: 3,
   maxSpendUsdPerMonth: 250,
+  maxScansPerMonth: 1000,
+  maxApiCallsPerMonth: 5000,
   // OpenWebNinja service toggles
   activeScanProvider: 'openwebninja' as 'serpapi_lens' | 'openwebninja',
   enableReverseImageSearch: true,
@@ -100,6 +102,8 @@ type ScanSettings = {
   openrouterMaxTokens: number;
   maxProviderCallsPerScan: number;
   maxSpendUsdPerMonth: number;
+  maxScansPerMonth: number;
+  maxApiCallsPerMonth: number;
   // OpenWebNinja service toggles
   activeScanProvider: 'serpapi_lens' | 'openwebninja';
   enableReverseImageSearch: boolean;
@@ -239,6 +243,8 @@ const loadScanSettings = async (brandId: string): Promise<ScanSettings> => {
       openrouter_max_tokens,
       max_provider_calls_per_scan,
       max_spend_usd_per_month,
+      max_scans_per_month,
+      max_api_calls_per_month,
       active_scan_provider,
       enable_reverse_image_search,
       enable_product_search,
@@ -288,6 +294,8 @@ const loadScanSettings = async (brandId: string): Promise<ScanSettings> => {
     openrouterMaxTokens: Number(data.openrouter_max_tokens ?? DEFAULT_SCAN_SETTINGS.openrouterMaxTokens),
     maxProviderCallsPerScan: Number(data.max_provider_calls_per_scan ?? DEFAULT_SCAN_SETTINGS.maxProviderCallsPerScan),
     maxSpendUsdPerMonth: Number(data.max_spend_usd_per_month ?? DEFAULT_SCAN_SETTINGS.maxSpendUsdPerMonth),
+    maxScansPerMonth: Number(data.max_scans_per_month ?? DEFAULT_SCAN_SETTINGS.maxScansPerMonth),
+    maxApiCallsPerMonth: Number(data.max_api_calls_per_month ?? DEFAULT_SCAN_SETTINGS.maxApiCallsPerMonth),
     activeScanProvider,
     enableReverseImageSearch: data.enable_reverse_image_search ?? DEFAULT_SCAN_SETTINGS.enableReverseImageSearch,
     enableProductSearch: data.enable_product_search ?? DEFAULT_SCAN_SETTINGS.enableProductSearch,
@@ -336,6 +344,36 @@ const loadMonthlySpendUsage = async (brandId: string): Promise<number> => {
 
   if (error || !data) return 0;
   return data.reduce((sum: number, row: { spend_usd?: number }) => sum + Number(row.spend_usd || 0), 0);
+};
+
+const loadMonthlyScanUsage = async (brandId: string): Promise<number> => {
+  const supabase: any = getSupabaseService();
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
+  const monthEnd = now.toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from('scan_budget_daily')
+    .select('scans_executed')
+    .eq('brand_id', brandId)
+    .gte('budget_date', monthStart)
+    .lte('budget_date', monthEnd);
+
+  if (error || !data) return 0;
+  return data.reduce((sum: number, row: { scans_executed?: number }) => sum + Number(row.scans_executed || 0), 0);
+};
+
+const loadMonthlyApiCallCount = async (brandId: string): Promise<number> => {
+  const supabase: any = getSupabaseService();
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const { count, error } = await supabase
+    .from('provider_search_runs')
+    .select('id', { count: 'exact', head: true })
+    .eq('brand_id', brandId)
+    .gte('created_at', monthStart);
+
+  if (error) return 0;
+  return count ?? 0;
 };
 
 const recordBudgetUsage = async (brandId: string, scanIncrement: number, spendIncrementUsd: number): Promise<void> => {
@@ -559,8 +597,26 @@ export async function POST(req: NextRequest) {
 
     const settings = await loadScanSettings(brand.id);
     const budget = await loadDailyBudgetUsage(brand.id);
-    const monthlySpend = await loadMonthlySpendUsage(brand.id);
+    const [monthlySpend, monthlyScans, monthlyApiCalls] = await Promise.all([
+      loadMonthlySpendUsage(brand.id),
+      loadMonthlyScanUsage(brand.id),
+      loadMonthlyApiCallCount(brand.id),
+    ]);
     const whitelistDomains = await loadWhitelistDomains(brand.id);
+
+    // Skip brand entirely if monthly API calls exceeded
+    if (monthlyApiCalls >= settings.maxApiCallsPerMonth) {
+      results.push({
+        brandId: brand.id,
+        claimed: 0,
+        success: 0,
+        failed: 0,
+        skipped: 0,
+        deadLettered: 0,
+        budgetSkipped: 1,
+      });
+      continue;
+    }
 
     const isOpenWebNinja = settings.activeScanProvider === 'openwebninja' && openWebNinjaApiKey;
     const perProviderCallCost = isOpenWebNinja
@@ -571,6 +627,7 @@ export async function POST(req: NextRequest) {
       : Math.max(1, Math.min(settings.maxProviderCallsPerScan, 10));
     const estimatedCost = perProviderCallCost * estimatedCallsPerScan;
     const remainingScans = Math.max(0, settings.maxScansPerDay - budget.scansExecuted);
+    const remainingMonthlyScans = Math.max(0, settings.maxScansPerMonth - monthlyScans);
     const remainingSpendUsd = Math.max(0, settings.maxSpendUsdPerDay - budget.spendUsd);
     const remainingMonthlySpendUsd = Math.max(0, settings.maxSpendUsdPerMonth - monthlySpend);
     const remainingBySpend = estimatedCost > 0
@@ -579,7 +636,7 @@ export async function POST(req: NextRequest) {
     const remainingByMonthlySpend = estimatedCost > 0
       ? Math.floor(remainingMonthlySpendUsd / estimatedCost)
       : remainingScans;
-    const budgetCapacity = Math.max(0, Math.min(remainingScans, remainingBySpend, remainingByMonthlySpend));
+    const budgetCapacity = Math.max(0, Math.min(remainingScans, remainingMonthlyScans, remainingBySpend, remainingByMonthlySpend));
     const runCapacity = Math.max(0, MAX_JOBS_PER_RUN - processed);
     const claimCapacity = Math.max(0, Math.min(CLAIM_LIMIT, settings.maxParallelScans, budgetCapacity, runCapacity));
 

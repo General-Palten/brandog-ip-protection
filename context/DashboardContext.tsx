@@ -11,6 +11,7 @@ import { CaseTransitionAction, inferCaseTransitionAction, validateCaseStatusTran
 import { seedDatabase } from '../lib/seed-data';
 import { MOCK_ACTIVITY, MOCK_INFRINGEMENTS, MOCK_KEYWORDS } from '../constants';
 import { useNotificationsSafe, createStatusChangeNotification } from './NotificationContext';
+import { loadPlanLimits, loadCurrentUsage, canAddAsset, canAddKeyword, canUploadStorage } from '../lib/plan-usage';
 
 interface Notification {
   id: string;
@@ -2015,6 +2016,20 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
       return;
     }
 
+    if (type === 'active') {
+      try {
+        const [limits, usage] = await Promise.all([
+          loadPlanLimits(supabase, currentBrand.id),
+          loadCurrentUsage(supabase, currentBrand.id),
+        ]);
+        const check = canAddKeyword(usage, limits);
+        if (!check.allowed) {
+          addNotification('error', check.reason || 'Keyword limit reached');
+          return;
+        }
+      } catch { /* allow on fetch failure */ }
+    }
+
     const { data, error } = await supabase
       .from('keywords')
       .insert({
@@ -3408,6 +3423,25 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
   ]);
 
   const addAsset = useCallback(async (file: File): Promise<string> => {
+    if (currentBrand) {
+      try {
+        const [limits, usage] = await Promise.all([
+          loadPlanLimits(supabase, currentBrand.id),
+          loadCurrentUsage(supabase, currentBrand.id),
+        ]);
+        const assetCheck = canAddAsset(usage, limits);
+        if (!assetCheck.allowed) {
+          addNotification('error', assetCheck.reason || 'Asset limit reached');
+          return '';
+        }
+        const storageCheck = canUploadStorage(usage, limits, file.size);
+        if (!storageCheck.allowed) {
+          addNotification('error', storageCheck.reason || 'Storage limit exceeded');
+          return '';
+        }
+      } catch { /* allow on fetch failure */ }
+    }
+
     const mimeType = getMimeType(file);
     const type = getAssetType(mimeType);
     const visionConfig = getVisionConfig();
