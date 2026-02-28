@@ -19,8 +19,8 @@ import {
 } from '@/lib/provider-openwebninja-reverse-image';
 import { searchProducts, mapProductsToListings } from '@/lib/provider-openwebninja-product-search';
 import { getVisualMatches, mapVisualMatchesToListings, toLensSearchCallShape } from '@/lib/provider-openwebninja-amazon';
-import { scrapeWebsiteContacts } from '@/lib/provider-openwebninja-contacts';
-import { searchSocialLinks } from '@/lib/provider-openwebninja-social';
+import { scrapeWebsiteContacts, toContactsSearchCallShape } from '@/lib/provider-openwebninja-contacts';
+import { searchSocialLinks, toSocialLinksSearchCallShape } from '@/lib/provider-openwebninja-social';
 import { scoreRevenue, type RevenueScoringOrder } from '@/lib/revenue-scoring';
 import { computeFixedCadenceNextScanAt } from '@/lib/scan-cadence';
 import { buildEvidenceBundle, normalizeEvidenceSnapshot } from '@/lib/evidence-normalizer';
@@ -858,6 +858,42 @@ export async function POST(req: NextRequest) {
             }
 
             mergedListings = listings.slice(0, MAX_MATCHES_PER_SCAN);
+
+            // Optional: Website Contacts enrichment (scrape contact info from top listing domains)
+            if (settings.enableWebsiteContacts && openWebNinjaApiKey && mergedListings.length > 0) {
+              try {
+                const topDomains = new Set<string>();
+                for (const l of mergedListings) {
+                  try { topDomains.add(new URL(l.link).hostname.replace(/^www\./, '')); } catch { /* skip */ }
+                  if (topDomains.size >= 3) break;
+                }
+                for (const domain of topDomains) {
+                  const contactsResult = await scrapeWebsiteContacts(domain, openWebNinjaApiKey, { matchEmailDomain: true });
+                  providerCallsMade += 1;
+                  const contactsCall = toContactsSearchCallShape(contactsResult, contactsResult.contacts, domain);
+                  providerCalls.push({
+                    call: contactsCall,
+                    runId: await recordProviderRun(job.brand_id, job.id, contactsCall, settings.websiteContactsCostUsd, OPENWEBNINJA_PROVIDER),
+                  });
+                }
+              } catch { /* Contacts enrichment is best-effort */ }
+            }
+
+            // Optional: Social Links enrichment (find social profiles for top sellers)
+            if (settings.enableSocialLinks && openWebNinjaApiKey && mergedListings.length > 0) {
+              try {
+                const sellerQuery = mergedListings[0]?.sellerName || mergedListings[0]?.source;
+                if (sellerQuery) {
+                  const socialResult = await searchSocialLinks(sellerQuery, openWebNinjaApiKey);
+                  providerCallsMade += 1;
+                  const socialCall = toSocialLinksSearchCallShape(socialResult, socialResult.profiles, sellerQuery);
+                  providerCalls.push({
+                    call: socialCall,
+                    runId: await recordProviderRun(job.brand_id, job.id, socialCall, settings.socialLinksCostUsd, OPENWEBNINJA_PROVIDER),
+                  });
+                }
+              } catch { /* Social enrichment is best-effort */ }
+            }
 
             if (mergedListings.length === 0) {
               status = 'success';

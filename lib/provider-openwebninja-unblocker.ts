@@ -6,6 +6,7 @@ import { postOpenWebNinja } from './openwebninja-client';
 
 export interface FetchPageResult {
   html: string;
+  finalUrl?: string;
   statusCode: number;
   latencyMs: number;
   ok: boolean;
@@ -14,36 +15,41 @@ export interface FetchPageResult {
 
 interface UnblockerApiResponse {
   status?: string;
-  html?: string;
-  result?: string;
-  [key: string]: unknown;
+  request_id?: string;
+  data?: {
+    status?: number;
+    final_url?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    [key: string]: unknown;
+  };
 }
 
 export async function fetchPageHtml(
   targetUrl: string,
   apiKey: string,
-  options?: { renderJs?: boolean }
+  options?: { renderJs?: boolean; waitUntil?: 'domloaded' | 'load' | 'networkidle' }
 ): Promise<FetchPageResult> {
-  const params: Record<string, string> = {
+  const body: Record<string, unknown> = {
     url: targetUrl,
+    render_js: options?.renderJs !== false,
   };
-  if (options?.renderJs !== false) {
-    params.render_js = 'true';
-  }
+  if (options?.waitUntil) body.wait_until = options.waitUntil;
 
   const result = await postOpenWebNinja<UnblockerApiResponse>({
     service: 'web_unblocker',
-    path: '/',
-    params,
+    path: '/request',
+    params: {},
     apiKey,
-    body: { url: targetUrl, render_js: options?.renderJs !== false },
+    body,
   });
 
-  const html = result.data?.html || result.data?.result || '';
+  const html = result.data?.data?.body || '';
 
   return {
     html: typeof html === 'string' ? html : '',
-    statusCode: result.status,
+    finalUrl: result.data?.data?.final_url,
+    statusCode: result.data?.data?.status || result.status,
     latencyMs: result.latencyMs,
     ok: result.ok,
     error: result.error,

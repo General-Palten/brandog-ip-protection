@@ -2,31 +2,26 @@
 // Finds social profiles across platforms for seller identification.
 
 import { callOpenWebNinja } from './openwebninja-client';
+import type { SerpApiSearchCall } from './provider-serpapi';
 
 export interface SocialProfile {
   platform: string;
   url: string;
-  name?: string;
 }
 
 interface SocialLinksApiResponse {
   status: string;
   request_id?: string;
-  data?: Array<{
-    platform?: string;
-    url?: string;
-    name?: string;
-    [key: string]: unknown;
-  }>;
+  data?: Record<string, string[]>;
 }
 
 export async function searchSocialLinks(
   query: string,
   apiKey: string,
-  options?: { limit?: number }
+  options?: { socialNetworks?: string }
 ): Promise<{ profiles: SocialProfile[]; latencyMs: number; ok: boolean; error?: string }> {
   const params: Record<string, string> = { query };
-  if (options?.limit) params.limit = String(options.limit);
+  if (options?.socialNetworks) params.social_networks = options.socialNetworks;
 
   const result = await callOpenWebNinja<SocialLinksApiResponse>({
     service: 'social_links',
@@ -35,26 +30,40 @@ export async function searchSocialLinks(
     apiKey,
   });
 
-  if (!result.ok || !Array.isArray(result.data?.data)) {
+  if (!result.ok || !result.data?.data || typeof result.data.data !== 'object') {
     return { profiles: [], latencyMs: result.latencyMs, ok: result.ok, error: result.error };
   }
 
   const profiles: SocialProfile[] = [];
   const seen = new Set<string>();
 
-  for (const item of result.data.data) {
-    const url = (item.url || '').trim();
-    if (!url || seen.has(url.toLowerCase())) continue;
-    seen.add(url.toLowerCase());
-
-    profiles.push({
-      platform: item.platform || inferPlatform(url),
-      url,
-      name: item.name || undefined,
-    });
+  for (const [platform, urls] of Object.entries(result.data.data)) {
+    if (!Array.isArray(urls)) continue;
+    for (const url of urls) {
+      const trimmed = (url || '').trim();
+      if (!trimmed || seen.has(trimmed.toLowerCase())) continue;
+      seen.add(trimmed.toLowerCase());
+      profiles.push({ platform, url: trimmed });
+    }
   }
 
   return { profiles, latencyMs: result.latencyMs, ok: true };
+}
+
+export function toSocialLinksSearchCallShape(
+  result: { ok: boolean; latencyMs: number; error?: string },
+  profiles: SocialProfile[],
+  query: string
+): SerpApiSearchCall {
+  return {
+    endpoint: 'openwebninja_social_links',
+    ok: result.ok,
+    status: result.ok ? 200 : 0,
+    payload: { profiles_count: profiles.length } as unknown as Record<string, any>,
+    error: result.error,
+    latencyMs: result.latencyMs,
+    query: { query, service: 'social_links' },
+  };
 }
 
 function inferPlatform(url: string): string {
