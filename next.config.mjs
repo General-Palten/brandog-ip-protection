@@ -3,6 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   env: {
     NEXT_PUBLIC_SERPAPI_SERVER_KEY: process.env.SERPAPI_API_KEY ? 'true' : 'false',
+    NEXT_PUBLIC_OPENWEBNINJA_CONFIGURED: process.env.OPENWEBNINJA_API_KEY ? 'true' : 'false',
   },
   async headers() {
     return [
