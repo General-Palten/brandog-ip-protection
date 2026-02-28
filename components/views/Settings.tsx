@@ -17,6 +17,7 @@ import {
   isServerManagedRapidApiEnabled,
   type ImageSearchProvider,
 } from '../../lib/api-config';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import {
   JOB_TITLES, BRAND_ROLES, DASHBOARD_VIEWS, DATE_FORMATS, TIMEZONES,
   PLAN_TIERS, LOG_ACTION_TYPES, MOCK_AUDIT_LOGS
@@ -158,6 +159,78 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
   const [activeProvider, setActiveProvider] = useState<ImageSearchProvider>(() => getVisionConfig().provider);
   const serpApiServerManaged = isServerManagedSerpApiEnabled();
   const rapidApiServerManaged = isServerManagedRapidApiEnabled();
+
+  const SERVICE_TOGGLES = [
+    { key: 'enable_reverse_image_search', label: 'Reverse Image Search', desc: 'Core image detection — finds where your images appear online', cost: '$0.0025', defaultOn: true },
+    { key: 'enable_product_search', label: 'Product Search', desc: 'Enrich results with pricing, seller, and product data', cost: '$0.0025', defaultOn: false },
+    { key: 'enable_amazon_data', label: 'Amazon Data', desc: 'Fetch ASIN details, seller profiles, and reviews for Amazon listings', cost: '$0.0025', defaultOn: false },
+    { key: 'enable_website_contacts', label: 'Website Contacts', desc: 'Scrape emails, phone numbers, and social links from seller sites', cost: '$0.0025', defaultOn: false },
+    { key: 'enable_social_links', label: 'Social Links', desc: 'Find social media profiles associated with infringing sellers', cost: '$0.0025', defaultOn: false },
+    { key: 'enable_web_unblocker', label: 'Web Unblocker', desc: 'Fetch protected/JS-heavy pages to check if listings are still active', cost: '$0.0005', defaultOn: false },
+  ] as const;
+
+  type ToggleKey = typeof SERVICE_TOGGLES[number]['key'];
+  const [serviceToggles, setServiceToggles] = useState<Record<ToggleKey, boolean>>(() => {
+    const defaults: Record<string, boolean> = {};
+    for (const svc of SERVICE_TOGGLES) defaults[svc.key] = svc.defaultOn;
+    return defaults as Record<ToggleKey, boolean>;
+  });
+  const [togglesLoading, setTogglesLoading] = useState(true);
+  const [togglesSaving, setTogglesSaving] = useState<ToggleKey | null>(null);
+
+  // Load service toggles from scan_settings
+  useEffect(() => {
+    if (!currentBrand?.id || !isSupabaseConfigured()) {
+      setTogglesLoading(false);
+      return;
+    }
+    (async () => {
+      try {
+        const { data } = await (supabase as any)
+          .from('scan_settings')
+          .select('enable_reverse_image_search, enable_product_search, enable_amazon_data, enable_website_contacts, enable_social_links, enable_web_unblocker')
+          .eq('brand_id', currentBrand.id)
+          .maybeSingle();
+        if (data) {
+          setServiceToggles({
+            enable_reverse_image_search: data.enable_reverse_image_search ?? true,
+            enable_product_search: data.enable_product_search ?? false,
+            enable_amazon_data: data.enable_amazon_data ?? false,
+            enable_website_contacts: data.enable_website_contacts ?? false,
+            enable_social_links: data.enable_social_links ?? false,
+            enable_web_unblocker: data.enable_web_unblocker ?? false,
+          });
+        }
+      } catch { /* use defaults */ }
+      setTogglesLoading(false);
+    })();
+  }, [currentBrand?.id]);
+
+  const handleToggleService = async (key: ToggleKey, enabled: boolean) => {
+    if (!currentBrand?.id || !isSupabaseConfigured()) {
+      addNotification('error', 'No brand selected or Supabase not configured');
+      return;
+    }
+    setTogglesSaving(key);
+    const prev = serviceToggles[key];
+    setServiceToggles(s => ({ ...s, [key]: enabled }));
+
+    try {
+      const { error } = await (supabase as any)
+        .from('scan_settings')
+        .upsert(
+          { brand_id: currentBrand.id, [key]: enabled },
+          { onConflict: 'brand_id' }
+        );
+      if (error) throw error;
+      const svcLabel = SERVICE_TOGGLES.find(s => s.key === key)?.label || key;
+      addNotification('success', `${svcLabel} ${enabled ? 'enabled' : 'disabled'}`);
+    } catch {
+      setServiceToggles(s => ({ ...s, [key]: prev }));
+      addNotification('error', 'Failed to update setting');
+    }
+    setTogglesSaving(null);
+  };
 
   const handleProviderChange = (provider: ImageSearchProvider) => {
     setActiveProvider(provider);
@@ -1052,26 +1125,41 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
                     <BentoCard title="OpenWebNinja Services">
                         <div className="mt-4 space-y-1">
                             <p className="text-xs text-secondary mb-4">
-                                Enrichment services run automatically during scans when enabled. Toggle them per-brand in the database scan_settings table.
+                                Enrichment services run automatically during scans when enabled. Each service adds a small cost per API call.
                             </p>
-                            {[
-                                { label: 'Reverse Image Search', desc: 'Core image detection', col: 'enable_reverse_image_search', cost: '$0.0025' },
-                                { label: 'Product Search', desc: 'Enrich results with product data', col: 'enable_product_search', cost: '$0.0025' },
-                                { label: 'Amazon Data', desc: 'ASIN details and seller info', col: 'enable_amazon_data', cost: '$0.0025' },
-                                { label: 'Website Contacts', desc: 'Scrape seller contact info', col: 'enable_website_contacts', cost: '$0.0025' },
-                                { label: 'Social Links', desc: 'Find associated social profiles', col: 'enable_social_links', cost: '$0.0025' },
-                                { label: 'Web Unblocker', desc: 'Fetch protected pages for status checks', col: 'enable_web_unblocker', cost: '$0.0005' },
-                            ].map((svc) => (
-                                <div key={svc.col} className="flex items-center justify-between py-3 border-b border-border last:border-0">
-                                    <div>
-                                        <p className="text-sm font-medium text-primary">{svc.label}</p>
-                                        <p className="text-xs text-secondary">{svc.desc} &mdash; {svc.cost}/call</p>
-                                    </div>
-                                    <span className="text-[10px] text-secondary bg-surface px-2 py-1 border border-border rounded">
-                                        DB toggle: {svc.col}
-                                    </span>
+                            {togglesLoading ? (
+                                <div className="flex items-center justify-center py-8 text-secondary">
+                                    <Loader2 className="animate-spin mr-2" size={16} />
+                                    <span className="text-sm">Loading service settings...</span>
                                 </div>
-                            ))}
+                            ) : (
+                                SERVICE_TOGGLES.map((svc) => (
+                                    <div key={svc.key} className="flex items-center justify-between py-3 border-b border-border last:border-0">
+                                        <div className="flex-1 min-w-0 mr-4">
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-sm font-medium text-primary">{svc.label}</p>
+                                                <span className="text-[10px] font-mono text-secondary bg-surface px-1.5 py-0.5 border border-border rounded shrink-0">
+                                                    {svc.cost}/call
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-secondary mt-0.5">{svc.desc}</p>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            {togglesSaving === svc.key && <Loader2 className="animate-spin text-secondary" size={14} />}
+                                            <Toggle
+                                                enabled={serviceToggles[svc.key]}
+                                                onChange={(val) => handleToggleService(svc.key, val)}
+                                                size="sm"
+                                            />
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                            {!currentBrand && !togglesLoading && (
+                                <p className="text-xs text-amber-500 mt-2">
+                                    No brand selected. Sign in and select a brand to manage service toggles.
+                                </p>
+                            )}
                         </div>
                     </BentoCard>
 
