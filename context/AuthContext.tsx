@@ -178,6 +178,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           if (insertError) {
             console.error('Error creating profile:', insertError.code, insertError.message)
+            // FK violation on profiles.id → auth.users.id means the auth session
+            // references a user that no longer exists. Signal the caller to sign out.
+            if (insertError.code === '23503') {
+              const orphanErr = new Error('Orphaned session: user no longer exists in auth.users')
+              ;(orphanErr as any).isOrphaned = true
+              throw orphanErr
+            }
             return null
           }
 
@@ -329,8 +336,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             if (!isMounted || mySeq !== authSeqRef.current) return
             setProfile(userProfile)
             await fetchBrands(session.user.id)
-          } catch (err) {
+          } catch (err: any) {
             if (isMounted && mySeq === authSeqRef.current) {
+              // Orphaned session — user was deleted from auth.users but a stale
+              // JWT still exists in cookies. Force sign-out to clear it.
+              if (err?.isOrphaned) {
+                console.warn('Orphaned session detected, signing out...')
+                void supabase.auth.signOut().catch(() => undefined)
+                setUser(null)
+                setSession(null)
+                setProfile(null)
+                setBrands([])
+                setBrandsStatus('idle')
+                setBrandsError(null)
+                setCurrentBrandId(null)
+                return
+              }
               console.error('Error during auth state change:', err)
               setBrandsStatus(prev => prev === 'idle' ? 'error' : prev)
               setBrandsError(prev => prev || 'Failed to initialize session')
