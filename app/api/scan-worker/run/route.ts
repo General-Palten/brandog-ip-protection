@@ -19,6 +19,7 @@ import {
 } from '@/lib/provider-openwebninja-reverse-image';
 import { searchProducts, mapProductsToListings } from '@/lib/provider-openwebninja-product-search';
 import { getVisualMatches, mapVisualMatchesToListings, toLensSearchCallShape } from '@/lib/provider-openwebninja-amazon';
+import { searchAmazonProducts, mapAmazonProductsToListings, toAmazonSearchCallShape } from '@/lib/provider-openwebninja-amazon-data';
 import { scrapeWebsiteContacts, toContactsSearchCallShape } from '@/lib/provider-openwebninja-contacts';
 import { searchSocialLinks, toSocialLinksSearchCallShape } from '@/lib/provider-openwebninja-social';
 import { scoreRevenue, type RevenueScoringOrder } from '@/lib/revenue-scoring';
@@ -54,12 +55,14 @@ const DEFAULT_SCAN_SETTINGS = {
   enableReverseImageSearch: true,
   enableProductSearch: false,
   enableLensData: false,
+  enableRealtimeAmazon: false,
   enableWebsiteContacts: false,
   enableSocialLinks: false,
   enableWebUnblocker: false,
   reverseImageSearchCostUsd: 0.0025,
   productSearchCostUsd: 0.0025,
   lensDataCostUsd: 0.0025,
+  realtimeAmazonCostUsd: 0.0025,
   websiteContactsCostUsd: 0.0025,
   socialLinksCostUsd: 0.0025,
   webUnblockerCostUsd: 0.0005,
@@ -102,12 +105,14 @@ type ScanSettings = {
   enableReverseImageSearch: boolean;
   enableProductSearch: boolean;
   enableLensData: boolean;
+  enableRealtimeAmazon: boolean;
   enableWebsiteContacts: boolean;
   enableSocialLinks: boolean;
   enableWebUnblocker: boolean;
   reverseImageSearchCostUsd: number;
   productSearchCostUsd: number;
   lensDataCostUsd: number;
+  realtimeAmazonCostUsd: number;
   websiteContactsCostUsd: number;
   socialLinksCostUsd: number;
   webUnblockerCostUsd: number;
@@ -238,12 +243,14 @@ const loadScanSettings = async (brandId: string): Promise<ScanSettings> => {
       enable_reverse_image_search,
       enable_product_search,
       enable_amazon_data,
+      enable_realtime_amazon,
       enable_website_contacts,
       enable_social_links,
       enable_web_unblocker,
       reverse_image_search_cost_usd,
       product_search_cost_usd,
       amazon_data_cost_usd,
+      realtime_amazon_cost_usd,
       website_contacts_cost_usd,
       social_links_cost_usd,
       web_unblocker_cost_usd
@@ -285,12 +292,14 @@ const loadScanSettings = async (brandId: string): Promise<ScanSettings> => {
     enableReverseImageSearch: data.enable_reverse_image_search ?? DEFAULT_SCAN_SETTINGS.enableReverseImageSearch,
     enableProductSearch: data.enable_product_search ?? DEFAULT_SCAN_SETTINGS.enableProductSearch,
     enableLensData: data.enable_amazon_data ?? DEFAULT_SCAN_SETTINGS.enableLensData,
+    enableRealtimeAmazon: data.enable_realtime_amazon ?? DEFAULT_SCAN_SETTINGS.enableRealtimeAmazon,
     enableWebsiteContacts: data.enable_website_contacts ?? DEFAULT_SCAN_SETTINGS.enableWebsiteContacts,
     enableSocialLinks: data.enable_social_links ?? DEFAULT_SCAN_SETTINGS.enableSocialLinks,
     enableWebUnblocker: data.enable_web_unblocker ?? DEFAULT_SCAN_SETTINGS.enableWebUnblocker,
     reverseImageSearchCostUsd: Number(data.reverse_image_search_cost_usd ?? DEFAULT_SCAN_SETTINGS.reverseImageSearchCostUsd),
     productSearchCostUsd: Number(data.product_search_cost_usd ?? DEFAULT_SCAN_SETTINGS.productSearchCostUsd),
     lensDataCostUsd: Number(data.amazon_data_cost_usd ?? DEFAULT_SCAN_SETTINGS.lensDataCostUsd),
+    realtimeAmazonCostUsd: Number(data.realtime_amazon_cost_usd ?? DEFAULT_SCAN_SETTINGS.realtimeAmazonCostUsd),
     websiteContactsCostUsd: Number(data.website_contacts_cost_usd ?? DEFAULT_SCAN_SETTINGS.websiteContactsCostUsd),
     socialLinksCostUsd: Number(data.social_links_cost_usd ?? DEFAULT_SCAN_SETTINGS.socialLinksCostUsd),
     webUnblockerCostUsd: Number(data.web_unblocker_cost_usd ?? DEFAULT_SCAN_SETTINGS.webUnblockerCostUsd),
@@ -855,6 +864,27 @@ export async function POST(req: NextRequest) {
                   listings = mergeListingsByUrl([...listings, ...lensListings]);
                 }
               } catch { /* Lens enrichment is best-effort */ }
+            }
+
+            // Optional: Real-Time Amazon Data search
+            if (settings.enableRealtimeAmazon && openWebNinjaApiKey && listings.length > 0) {
+              try {
+                const topTitle = listings[0]?.title;
+                if (topTitle) {
+                  const amazonResult = await searchAmazonProducts(topTitle, openWebNinjaApiKey);
+                  providerCallsMade += 1;
+                  const amazonProducts = amazonResult.data?.data?.products || [];
+                  const amazonCall = toAmazonSearchCallShape(amazonResult, amazonProducts.length, topTitle);
+                  providerCalls.push({
+                    call: amazonCall,
+                    runId: await recordProviderRun(job.brand_id, job.id, amazonCall, settings.realtimeAmazonCostUsd, OPENWEBNINJA_PROVIDER),
+                  });
+                  if (amazonResult.ok && amazonProducts.length > 0) {
+                    const amazonListings = mapAmazonProductsToListings(amazonProducts);
+                    listings = mergeListingsByUrl([...listings, ...amazonListings]);
+                  }
+                }
+              } catch { /* Amazon enrichment is best-effort */ }
             }
 
             mergedListings = listings.slice(0, MAX_MATCHES_PER_SCAN);

@@ -5,6 +5,7 @@ export type OpenWebNinjaService =
   | 'reverse_image_search'
   | 'product_search'
   | 'realtime_lens_data'
+  | 'realtime_amazon_data'
   | 'website_contacts'
   | 'social_links'
   | 'web_unblocker';
@@ -59,6 +60,17 @@ export const SERVICE_CATALOG: ServiceDefinition[] = [
     estimatedCostUsd: 0.0025,
     settingsColumn: 'enable_product_search',
     costColumn: 'product_search_cost_usd',
+  },
+  {
+    key: 'realtime_amazon_data',
+    label: 'Amazon Data',
+    description: 'Search Amazon products, sellers, offers, and reviews for counterfeit detection',
+    category: 'enrichment',
+    apiBaseUrl: 'https://api.openwebninja.com/realtime-amazon-data',
+    defaultEnabled: false,
+    estimatedCostUsd: 0.0025,
+    settingsColumn: 'enable_realtime_amazon',
+    costColumn: 'realtime_amazon_cost_usd',
   },
   {
     key: 'website_contacts',

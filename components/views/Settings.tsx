@@ -154,6 +154,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
     { key: 'enable_reverse_image_search', label: 'Reverse Image Search', desc: 'Core detection engine — finds where your protected images appear across the web', cost: 0.0025, defaultOn: true, endpoint: 'reverse-image-search' },
     { key: 'enable_product_search', label: 'Product Search', desc: 'Enrich detected listings with pricing, seller, and product metadata', cost: 0.0025, defaultOn: false, endpoint: 'product-search' },
     { key: 'enable_amazon_data', label: 'Visual Search', desc: 'Visual matches, object detection, and OCR via Google Lens', cost: 0.0025, defaultOn: false, endpoint: 'lens-data' },
+    { key: 'enable_realtime_amazon', label: 'Amazon Data', desc: 'Search Amazon products, sellers, and offers for counterfeit detection', cost: 0.0025, defaultOn: false, endpoint: 'amazon-data' },
     { key: 'enable_website_contacts', label: 'Website Contacts', desc: 'Extract emails, phone numbers, and social links from infringing seller sites', cost: 0.0025, defaultOn: false, endpoint: 'website-contacts' },
     { key: 'enable_social_links', label: 'Social Links', desc: 'Discover social media profiles associated with infringing sellers', cost: 0.0025, defaultOn: false, endpoint: 'social-links' },
     { key: 'enable_web_unblocker', label: 'Web Unblocker', desc: 'Access protected and JS-heavy pages to verify if listings are still active', cost: 0.0005, defaultOn: false, endpoint: 'web-unblocker' },
@@ -184,7 +185,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
       try {
         const { data } = await (supabase as any)
           .from('scan_settings')
-          .select('enable_reverse_image_search, enable_product_search, enable_amazon_data, enable_website_contacts, enable_social_links, enable_web_unblocker')
+          .select('enable_reverse_image_search, enable_product_search, enable_amazon_data, enable_realtime_amazon, enable_website_contacts, enable_social_links, enable_web_unblocker')
           .eq('brand_id', currentBrand.id)
           .maybeSingle();
         if (data) {
@@ -192,6 +193,7 @@ const Settings: React.FC<SettingsProps> = ({ initialSection = 'profile' }) => {
             enable_reverse_image_search: data.enable_reverse_image_search ?? true,
             enable_product_search: data.enable_product_search ?? false,
             enable_amazon_data: data.enable_amazon_data ?? false,
+            enable_realtime_amazon: data.enable_realtime_amazon ?? false,
             enable_website_contacts: data.enable_website_contacts ?? false,
             enable_social_links: data.enable_social_links ?? false,
             enable_web_unblocker: data.enable_web_unblocker ?? false,
