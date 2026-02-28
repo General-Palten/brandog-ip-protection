@@ -13,7 +13,7 @@ import AuthScreen from './components/AuthScreen';
 import OnboardingScreen from './components/OnboardingScreen';
 import NotificationBell from './components/NotificationBell';
 import { InfringementItem } from './types';
-import { User, Shield, CreditCard, LogOut, Building2, Scale, ArrowRight, Loader2, Bell } from 'lucide-react';
+import { User, Shield, CreditCard, LogOut, Building2, Scale, ArrowRight, Loader2, Bell, AlertTriangle, RefreshCw } from 'lucide-react';
 import { isSupabaseConfigured } from './lib/supabase';
 
 // Views
@@ -360,9 +360,52 @@ const LoadingScreen: React.FC = () => (
   </div>
 );
 
+// Error screen when brands fail to load
+const BrandsErrorScreen: React.FC<{ error: string | null; onRetry: () => void; onSignOut: () => void }> = ({ error, onRetry, onSignOut }) => {
+  const [retrying, setRetrying] = useState(false);
+
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
+      <div className="w-12 h-12 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center justify-center mb-4">
+        <AlertTriangle className="text-red-500" size={28} />
+      </div>
+      <h2 className="text-lg font-medium text-primary mb-2">Unable to load your brands</h2>
+      <p className="text-secondary text-sm mb-6 text-center max-w-md">
+        {error || 'Something went wrong while loading your data. Please try again.'}
+      </p>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleRetry}
+          disabled={retrying}
+          className="px-4 py-2 bg-primary text-background text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
+        >
+          {retrying ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+          {retrying ? 'Retrying...' : 'Try Again'}
+        </button>
+        <button
+          onClick={onSignOut}
+          className="px-4 py-2 border border-border text-secondary text-sm font-medium rounded-lg hover:text-primary hover:border-secondary transition-colors flex items-center gap-2"
+        >
+          <LogOut size={16} />
+          Sign Out
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // Inner app component that uses auth context
 const AppContent: React.FC = () => {
-  const { user, profile, loading, isConfigured, signOut, brands } = useAuth();
+  const { user, profile, loading, isConfigured, signOut, brands, brandsStatus, brandsError, retryLoadBrands } = useAuth();
   const bypassAuth = isBypassAuthEnabled();
   const bypassRole = getBypassRole();
 
@@ -411,7 +454,17 @@ const AppContent: React.FC = () => {
       return <AuthScreen />;
     }
 
-    // Logged in but no brands - show onboarding
+    // Still loading brands (initial or in-progress)
+    if (brandsStatus === 'idle' || brandsStatus === 'loading') {
+      return <LoadingScreen />;
+    }
+
+    // Failed to load brands - show error with retry
+    if (brandsStatus === 'error') {
+      return <BrandsErrorScreen error={brandsError} onRetry={retryLoadBrands} onSignOut={signOut} />;
+    }
+
+    // Loaded but no brands - genuine first-time user
     if (brands.length === 0) {
       return <OnboardingScreen />;
     }

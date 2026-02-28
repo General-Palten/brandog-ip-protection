@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, useCallback } from 'react'
 import { User, Session, AuthError } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
 import type { Profile, Brand } from '../lib/database.types'
@@ -11,6 +11,8 @@ export interface AuthProfile {
   avatarUrl: string | null
   role: 'brand_owner' | 'admin' | 'lawyer'
 }
+
+type BrandsStatus = 'idle' | 'loading' | 'loaded' | 'error'
 
 interface AuthContextType {
   user: User | null
@@ -31,9 +33,12 @@ interface AuthContextType {
   // Brand helpers
   currentBrand: Brand | null
   brands: Brand[]
+  brandsStatus: BrandsStatus
+  brandsError: string | null
   setCurrentBrandId: (id: string) => void
   createBrand: (name: string, websiteUrl?: string) => Promise<{ data: Brand | null; error: Error | null }>
   refreshBrands: () => Promise<void>
+  retryLoadBrands: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -126,6 +131,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState(true)
   const [brands, setBrands] = useState<Brand[]>([])
   const [currentBrandId, setCurrentBrandId] = useState<string | null>(null)
+  const [brandsStatus, setBrandsStatus] = useState<BrandsStatus>('idle')
+  const [brandsError, setBrandsError] = useState<string | null>(null)
+  const authSeqRef = useRef(0)
   const isConfigured = isSupabaseConfigured()
   const bypassAuth = isBypassAuthEnabled()
 
@@ -195,6 +203,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const fetchBrands = useCallback(async (userId: string) => {
     if (!isConfigured) return
 
+    setBrandsStatus('loading')
+    setBrandsError(null)
+
     try {
       const { data, error } = await supabase
         .from('brands')
@@ -204,10 +215,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (error) {
         console.error('Error fetching brands:', error)
+        setBrandsStatus('error')
+        setBrandsError(error.message || 'Failed to load brands')
+        // Do NOT call setBrands([]) — keep existing brands in state
         return
       }
 
       setBrands(data || [])
+      setBrandsStatus('loaded')
 
       // Set first brand as current if none selected
       if (data && data.length > 0) {
@@ -217,7 +232,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (isAbortLikeError(error)) {
         return
       }
-      throw error
+      const msg = error instanceof Error ? error.message : 'Failed to load brands'
+      setBrandsStatus('error')
+      setBrandsError(msg)
     }
   }, [isConfigured])
 
@@ -251,6 +268,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!isMounted) return
+
+        // Race guard: bump sequence so stale handlers can bail out
+        authSeqRef.current += 1
+        const mySeq = authSeqRef.current
+
         setSession(session)
         setUser(session?.user ?? null)
 
@@ -261,18 +283,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               session.user.email,
               session.user.user_metadata?.full_name
             )
-            if (isMounted) {
-              setProfile(userProfile)
-              await fetchBrands(session.user.id)
-            }
+            // Discard if a newer auth event has fired while we awaited
+            if (!isMounted || mySeq !== authSeqRef.current) return
+            setProfile(userProfile)
+            await fetchBrands(session.user.id)
           } catch (err) {
-            if (isMounted) {
+            if (isMounted && mySeq === authSeqRef.current) {
               console.error('Error during auth state change:', err)
             }
           }
         } else {
           setProfile(null)
           setBrands([])
+          setBrandsStatus('idle')
+          setBrandsError(null)
           setCurrentBrandId(null)
         }
 
@@ -341,6 +365,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setSession(null)
       setProfile(null)
       setBrands([])
+      setBrandsStatus('idle')
+      setBrandsError(null)
       setCurrentBrandId(null)
     } catch (err) {
       console.error('Sign out exception:', err)
@@ -495,6 +521,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }
 
+  // Retry loading brands (for error recovery UI)
+  const retryLoadBrands = useCallback(async () => {
+    if (user) {
+      await withTimeout(fetchBrands(user.id), BRAND_DB_TIMEOUT_MS, 'Brand list retry')
+    }
+  }, [user, fetchBrands])
+
   // Get current brand
   const currentBrand = brands.find(b => b.id === currentBrandId) || null
 
@@ -515,9 +548,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isLawyer: profile?.role === 'lawyer',
       currentBrand,
       brands,
+      brandsStatus,
+      brandsError,
       setCurrentBrandId,
       createBrand,
       refreshBrands,
+      retryLoadBrands,
     }}>
       {children}
     </AuthContext.Provider>
