@@ -73,9 +73,13 @@ function run() {
   const expectedInfringementStatuses = [
     'detected',
     'pending_review',
+    'needs_member_input',
     'in_progress',
-    'resolved',
-    'rejected',
+    'resolved_success',
+    'resolved_partial',
+    'resolved_failed',
+    'dismissed_by_member',
+    'dismissed_by_admin',
   ]
 
   const expectedAssetScanStatuses = [
@@ -96,6 +100,13 @@ function run() {
     'escalated',
     'content_removed',
     'case_closed',
+    'sent_back_to_member',
+    'member_responded',
+    'member_withdrew',
+    'retry_requested',
+    'priority_changed',
+    'evidence_added',
+    'enforcement_requested',
     'custom',
   ]
 
@@ -125,14 +136,20 @@ function run() {
   )
 
   const validTransitions = [
-    ['detected', 'pending_review', 'agent_detection_complete'],
-    ['pending_review', 'in_progress', 'company_enforce'],
-    ['pending_review', 'rejected', 'company_dismiss'],
-    ['pending_review', 'rejected', 'company_whitelist'],
-    ['in_progress', 'resolved', 'lawyer_resolve'],
-    ['in_progress', 'rejected', 'lawyer_reject'],
-    ['resolved', 'detected', 'manual_reopen'],
-    ['rejected', 'detected', 'manual_reopen'],
+    ['detected', 'pending_review', 'member_request_enforcement'],
+    ['detected', 'dismissed_by_member', 'member_dismiss'],
+    ['pending_review', 'in_progress', 'admin_approve'],
+    ['pending_review', 'needs_member_input', 'admin_request_input'],
+    ['needs_member_input', 'pending_review', 'member_respond'],
+    ['in_progress', 'resolved_success', 'admin_resolve_success'],
+    ['in_progress', 'resolved_partial', 'admin_resolve_partial'],
+    ['in_progress', 'resolved_failed', 'admin_resolve_failed'],
+    ['resolved_success', 'detected', 'admin_reopen'],
+    ['resolved_partial', 'detected', 'admin_reopen'],
+    ['resolved_failed', 'pending_review', 'member_request_retry'],
+    ['resolved_failed', 'detected', 'admin_reopen'],
+    ['dismissed_by_member', 'detected', 'manual_reopen'],
+    ['dismissed_by_admin', 'detected', 'admin_reopen'],
   ]
 
   for (const [from, to, action] of validTransitions) {
@@ -141,7 +158,7 @@ function run() {
   }
 
   const missingActionResult = validateCaseStatusTransition('pending_review', 'in_progress')
-  assert(missingActionResult.ok === false, 'pending_review -> in_progress must fail without company_enforce')
+  assert(missingActionResult.ok === false, 'pending_review -> in_progress must fail without admin_approve')
   if (!missingActionResult.ok) {
     assert(
       missingActionResult.error.code === 'missing_required_action',
@@ -151,11 +168,12 @@ function run() {
 
   const invalidTransitions = [
     ['detected', 'in_progress'],
-    ['detected', 'resolved'],
-    ['pending_review', 'resolved'],
+    ['detected', 'resolved_success'],
+    ['pending_review', 'resolved_success'],
+    ['needs_member_input', 'in_progress'],
     ['in_progress', 'detected'],
-    ['resolved', 'in_progress'],
-    ['rejected', 'pending_review'],
+    ['resolved_success', 'in_progress'],
+    ['dismissed_by_admin', 'pending_review'],
   ]
 
   for (const [from, to] of invalidTransitions) {
